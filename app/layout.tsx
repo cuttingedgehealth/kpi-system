@@ -18,6 +18,7 @@ export default function RootLayout({
               <Link href="/daily-sheet">Daily Sheet</Link>
               <Link href="/payroll">Payroll</Link>
               <Link href="/sources">Settings</Link>
+              <Link href="/salesboard">Salesboard</Link>
             </nav>
           </div>
 
