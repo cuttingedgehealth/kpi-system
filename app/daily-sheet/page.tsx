@@ -13,6 +13,13 @@ type Source = {
   display_order: number;
 };
 
+type Rep = {
+  id: string;
+  name: string;
+  active: boolean;
+  display_order: number;
+};
+
 type Metric = {
   id: string;
   office_id: string;
@@ -41,6 +48,8 @@ type Plan = {
 type Deal = {
   id: string;
   deal_date: string;
+  rep_id: string | null;
+  member_id: string | null;
   source_id: string | null;
   plan_id: string | null;
   limited_premium: number;
@@ -56,6 +65,7 @@ function currency(value: number) {
 export default function DailySheetPage() {
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [sources, setSources] = useState<Source[]>([]);
+  const [reps, setReps] = useState<Rep[]>([]);
   const [metrics, setMetrics] = useState<Metric[]>([]);
   const [rows, setRows] = useState<RowState[]>([]);
   const [plans, setPlans] = useState<Plan[]>([]);
@@ -64,6 +74,8 @@ export default function DailySheetPage() {
   const [errorText, setErrorText] = useState("");
   const [dealModalOpen, setDealModalOpen] = useState(false);
   const [dealForm, setDealForm] = useState({
+    rep_id: "",
+    member_id: "",
     source_id: "",
     plan_id: "",
     limited_premium: "",
@@ -71,7 +83,7 @@ export default function DailySheetPage() {
     aca_sold: false,
   });
 
-  async function loadData() {
+  async function loadData(targetDate: string) {
     setLoading(true);
     setErrorText("");
 
@@ -83,7 +95,6 @@ export default function DailySheetPage() {
       .order("display_order", { ascending: true });
 
     if (sourceError) {
-      console.error("Source load error:", sourceError);
       setErrorText(`Source load error: ${sourceError.message}`);
       setLoading(false);
       return;
@@ -91,6 +102,21 @@ export default function DailySheetPage() {
 
     const sourceList = (sourceData ?? []) as Source[];
     setSources(sourceList);
+
+    const { data: repData, error: repError } = await supabase
+      .from("reps")
+      .select("*")
+      .eq("office_id", OFFICE_ID)
+      .eq("active", true)
+      .order("display_order", { ascending: true });
+
+    if (repError) {
+      setErrorText(`Rep load error: ${repError.message}`);
+      setLoading(false);
+      return;
+    }
+
+    setReps((repData ?? []) as Rep[]);
 
     const { data: planData, error: planError } = await supabase
       .from("plans")
@@ -100,7 +126,6 @@ export default function DailySheetPage() {
       .order("display_order", { ascending: true });
 
     if (planError) {
-      console.error("Plan load error:", planError);
       setErrorText(`Plan load error: ${planError.message}`);
       setLoading(false);
       return;
@@ -112,10 +137,9 @@ export default function DailySheetPage() {
       .from("daily_metrics")
       .select("*")
       .eq("office_id", OFFICE_ID)
-      .eq("metric_date", date);
+      .eq("metric_date", targetDate);
 
     if (metricError) {
-      console.error("Metric load error:", metricError);
       setErrorText(`Metric load error: ${metricError.message}`);
       setLoading(false);
       return;
@@ -129,7 +153,7 @@ export default function DailySheetPage() {
     if (missingSources.length > 0) {
       const inserts = missingSources.map((s) => ({
         office_id: OFFICE_ID,
-        metric_date: date,
+        metric_date: targetDate,
         source_id: s.id,
         quantity: 0,
         cpl_override: null,
@@ -141,7 +165,6 @@ export default function DailySheetPage() {
         .insert(inserts);
 
       if (insertError) {
-        console.error("Metric insert error:", insertError);
         setErrorText(`Metric insert error: ${insertError.message}`);
         setLoading(false);
         return;
@@ -151,10 +174,9 @@ export default function DailySheetPage() {
         .from("daily_metrics")
         .select("*")
         .eq("office_id", OFFICE_ID)
-        .eq("metric_date", date);
+        .eq("metric_date", targetDate);
 
       if (reloadError) {
-        console.error("Metric reload error:", reloadError);
         setErrorText(`Metric reload error: ${reloadError.message}`);
         setLoading(false);
         return;
@@ -172,17 +194,11 @@ export default function DailySheetPage() {
         metricId: metric?.id ?? null,
         sourceId: source.id,
         cplOverrideInput:
-          metric?.cpl_override === null || metric?.cpl_override === undefined
-            ? ""
-            : String(metric.cpl_override),
+          metric?.cpl_override == null ? "" : String(metric.cpl_override),
         quantityInput:
-          metric?.quantity === null || metric?.quantity === undefined
-            ? "0"
-            : String(metric.quantity),
+          metric?.quantity == null ? "0" : String(metric.quantity),
         spendOverrideInput:
-          metric?.spend_override === null || metric?.spend_override === undefined
-            ? ""
-            : String(metric.spend_override),
+          metric?.spend_override == null ? "" : String(metric.spend_override),
       };
     });
 
@@ -192,10 +208,9 @@ export default function DailySheetPage() {
       .from("deals")
       .select("*")
       .eq("office_id", OFFICE_ID)
-      .eq("deal_date", date);
+      .eq("deal_date", targetDate);
 
     if (dealError) {
-      console.error("Deal load error:", dealError);
       setErrorText(`Deal load error: ${dealError.message}`);
       setLoading(false);
       return;
@@ -206,7 +221,7 @@ export default function DailySheetPage() {
   }
 
   useEffect(() => {
-    loadData();
+    loadData(date);
   }, [date]);
 
   function updateRowInput(sourceId: string, field: keyof RowState, value: string) {
@@ -217,30 +232,65 @@ export default function DailySheetPage() {
     );
   }
 
-  async function saveField(sourceId: string, updates: Partial<Metric>) {
-    const row = rows.find((r) => r.sourceId === sourceId);
-    if (!row?.metricId) return;
-
+  async function saveFieldByMetricId(metricId: string, updates: Partial<Metric>) {
     const { error } = await supabase
       .from("daily_metrics")
       .update(updates)
-      .eq("id", row.metricId);
+      .eq("id", metricId);
 
     if (error) {
-      console.error("Metric update error:", error);
       setErrorText(`Metric update error: ${error.message}`);
-      return;
+      return false;
     }
 
     setMetrics((prev) =>
       prev.map((metric) =>
-        metric.id === row.metricId ? { ...metric, ...updates } : metric
+        metric.id === metricId ? { ...metric, ...updates } : metric
       )
     );
+
+    return true;
+  }
+
+  async function flushPendingEdits() {
+    for (const row of rows) {
+      if (!row.metricId) continue;
+
+      const ok = await saveFieldByMetricId(row.metricId, {
+        cpl_override: row.cplOverrideInput === "" ? null : Number(row.cplOverrideInput),
+        quantity: Number(row.quantityInput || 0),
+        spend_override: row.spendOverrideInput === "" ? null : Number(row.spendOverrideInput),
+      });
+
+      if (!ok) return false;
+    }
+    return true;
+  }
+
+  async function handleDateChange(nextDate: string) {
+    const ok = await flushPendingEdits();
+    if (!ok) return;
+    setDate(nextDate);
+  }
+
+  async function saveField(sourceId: string, updates: Partial<Metric>) {
+    const row = rows.find((r) => r.sourceId === sourceId);
+    if (!row?.metricId) return;
+    await saveFieldByMetricId(row.metricId, updates);
   }
 
   async function saveDeal() {
     setErrorText("");
+
+    if (!dealForm.rep_id) {
+      setErrorText("Please select a rep.");
+      return;
+    }
+
+    if (!dealForm.member_id.trim()) {
+      setErrorText("Please enter a Member ID.");
+      return;
+    }
 
     if (!dealForm.source_id || !dealForm.plan_id) {
       setErrorText("Please select a lead source and plan.");
@@ -254,6 +304,8 @@ export default function DailySheetPage() {
     const { error } = await supabase.from("deals").insert({
       office_id: OFFICE_ID,
       deal_date: date,
+      rep_id: dealForm.rep_id,
+      member_id: dealForm.member_id.trim(),
       source_id: dealForm.source_id,
       plan_id: dealForm.plan_id,
       limited_premium: limited,
@@ -263,12 +315,13 @@ export default function DailySheetPage() {
     });
 
     if (error) {
-      console.error("Save deal error:", error);
       setErrorText(`Save deal error: ${error.message}`);
       return;
     }
 
     setDealForm({
+      rep_id: "",
+      member_id: "",
       source_id: "",
       plan_id: "",
       limited_premium: "",
@@ -276,7 +329,7 @@ export default function DailySheetPage() {
       aca_sold: false,
     });
     setDealModalOpen(false);
-    loadData();
+    loadData(date);
   }
 
   function getMetricForSource(sourceId: string) {
@@ -294,7 +347,7 @@ export default function DailySheetPage() {
   const dailyTotals = useMemo(() => {
     let totalLeads = 0;
     let totalSpend = 0;
-    let totalSales = deals.length;
+    const totalSales = deals.length;
     let totalPremium = 0;
     let acaWrappedDeals = 0;
 
@@ -345,7 +398,7 @@ export default function DailySheetPage() {
         <input
           type="date"
           value={date}
-          onChange={(e) => setDate(e.target.value)}
+          onChange={(e) => handleDateChange(e.target.value)}
           className="rounded bg-slate-800 p-2"
         />
 
@@ -364,47 +417,22 @@ export default function DailySheetPage() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <div className="rounded-xl bg-slate-950 p-4">
-          <div className="text-sm text-slate-400">Total Spend</div>
-          <div className="mt-2 text-2xl font-bold">{currency(dailyTotals.totalSpend)}</div>
-        </div>
-
-        <div className="rounded-xl bg-slate-950 p-4">
-          <div className="text-sm text-slate-400">Total Sales</div>
-          <div className="mt-2 text-2xl font-bold">{dailyTotals.totalSales}</div>
-        </div>
-
-        <div className="rounded-xl bg-slate-950 p-4">
-          <div className="text-sm text-slate-400">Total Premium</div>
-          <div className="mt-2 text-2xl font-bold">{currency(dailyTotals.totalPremium)}</div>
-        </div>
-
-        <div className="rounded-xl bg-slate-950 p-4">
-          <div className="text-sm text-slate-400">Total Leads</div>
-          <div className="mt-2 text-2xl font-bold">{dailyTotals.totalLeads}</div>
-        </div>
-
-        <div className="rounded-xl bg-slate-950 p-4">
-          <div className="text-sm text-slate-400">CAC</div>
-          <div className="mt-2 text-2xl font-bold">{currency(dailyTotals.cac)}</div>
-        </div>
-
-        <div className="rounded-xl bg-slate-950 p-4">
-          <div className="text-sm text-slate-400">Conversion</div>
-          <div className="mt-2 text-2xl font-bold">{dailyTotals.conversion.toFixed(2)}%</div>
-        </div>
-
-        <div className="rounded-xl bg-slate-950 p-4">
-          <div className="text-sm text-slate-400">P/S Ratio</div>
-          <div className="mt-2 text-2xl font-bold">{dailyTotals.ps.toFixed(2)}x</div>
-        </div>
-
-        <div className="rounded-xl bg-slate-950 p-4">
-          <div className="text-sm text-slate-400">ACA Wrapped %</div>
-          <div className="mt-2 text-2xl font-bold">
-            {dailyTotals.acaWrappedPct.toFixed(2)}%
-          </div>
-        </div>
+        <Tile label="Total Spend" value={currency(dailyTotals.totalSpend)} />
+        <Tile label="Total Sales" value={String(dailyTotals.totalSales)} />
+        <Tile label="Total Premium" value={currency(dailyTotals.totalPremium)} />
+        <Tile label="Total Leads" value={String(dailyTotals.totalLeads)} />
+        <Tile
+          label="CAC"
+          value={currency(dailyTotals.cac)}
+          danger={dailyTotals.totalSales > 0 && dailyTotals.cac > 499.99}
+        />
+        <Tile label="Conversion" value={`${dailyTotals.conversion.toFixed(2)}%`} />
+        <Tile
+          label="P/S Ratio"
+          value={`${dailyTotals.ps.toFixed(2)}x`}
+          danger={dailyTotals.totalSpend > 0 && dailyTotals.ps < 0.74}
+        />
+        <Tile label="ACA Wrapped %" value={`${dailyTotals.acaWrappedPct.toFixed(2)}%`} />
       </div>
 
       <table className="w-full text-sm">
@@ -446,6 +474,9 @@ export default function DailySheetPage() {
             const conversion = quantity > 0 ? (sales / quantity) * 100 : 0;
             const cac = sales > 0 ? effectiveSpend / sales : 0;
             const ps = effectiveSpend > 0 ? premium / effectiveSpend : 0;
+
+            const cacDanger = sales > 0 && cac > 499.99;
+            const psDanger = effectiveSpend > 0 && ps < 0.74;
 
             return (
               <tr key={source.id} className="border-b border-slate-800">
@@ -516,9 +547,13 @@ export default function DailySheetPage() {
                 </td>
 
                 <td>{sales}</td>
-                <td>{sales > 0 ? currency(cac) : "—"}</td>
+                <td className={cacDanger ? "font-semibold text-red-400" : ""}>
+                  {sales > 0 ? currency(cac) : "—"}
+                </td>
                 <td>{currency(premium)}</td>
-                <td>{effectiveSpend > 0 ? `${ps.toFixed(2)}x` : "—"}</td>
+                <td className={psDanger ? "font-semibold text-red-400" : ""}>
+                  {effectiveSpend > 0 ? `${ps.toFixed(2)}x` : "—"}
+                </td>
                 <td>{conversion.toFixed(2)}%</td>
               </tr>
             );
@@ -532,6 +567,37 @@ export default function DailySheetPage() {
             <h2 className="mb-6 text-3xl font-bold">Enter Deal</h2>
 
             <div className="space-y-4">
+              <div>
+                <label className="mb-1 block text-sm text-slate-300">Rep</label>
+                <select
+                  value={dealForm.rep_id}
+                  onChange={(e) =>
+                    setDealForm((prev) => ({ ...prev, rep_id: e.target.value }))
+                  }
+                  className="w-full rounded bg-slate-800 px-3 py-2"
+                >
+                  <option value="">Select rep</option>
+                  {reps.map((rep) => (
+                    <option key={rep.id} value={rep.id}>
+                      {rep.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm text-slate-300">Member ID</label>
+                <input
+                  type="text"
+                  value={dealForm.member_id}
+                  onChange={(e) =>
+                    setDealForm((prev) => ({ ...prev, member_id: e.target.value }))
+                  }
+                  className="w-full rounded bg-slate-800 px-3 py-2"
+                  placeholder="Enter member ID"
+                />
+              </div>
+
               <div>
                 <label className="mb-1 block text-sm text-slate-300">Plan</label>
                 <select
@@ -651,6 +717,25 @@ export default function DailySheetPage() {
           </div>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function Tile({
+  label,
+  value,
+  danger = false,
+}: {
+  label: string;
+  value: string;
+  danger?: boolean;
+}) {
+  return (
+    <div className="rounded-xl bg-slate-950 p-4">
+      <div className="text-sm text-slate-400">{label}</div>
+      <div className={`mt-2 text-2xl font-bold ${danger ? "text-red-400" : ""}`}>
+        {value}
+      </div>
     </div>
   );
 }

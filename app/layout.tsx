@@ -16,7 +16,8 @@ export default function RootLayout({
             <nav className="flex flex-col gap-3 text-slate-300">
               <Link href="/dashboard">Dashboard</Link>
               <Link href="/daily-sheet">Daily Sheet</Link>
-              <Link href="/sources">Sources</Link>
+              <Link href="/payroll">Payroll</Link>
+              <Link href="/sources">Settings</Link>
             </nav>
           </div>
 
