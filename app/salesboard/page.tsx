@@ -10,7 +10,6 @@ type Rep = {
 };
 
 type Deal = {
-  id: string;
   rep_id: string | null;
   payment_date: string | null;
   total_premium: number;
@@ -50,19 +49,24 @@ export default function SalesboardPage() {
   async function load() {
     setLoading(true);
 
-    const { data: repData } = await supabase
+    const { data: repData, error: repError } = await supabase
       .from("reps")
       .select("id,name")
       .eq("office_id", OFFICE_ID)
-      .eq("active", true);
+      .eq("active", true)
+      .order("display_order", { ascending: true });
 
-    const { data: dealData } = await supabase
+    const { data: dealData, error: dealError } = await supabase
       .from("deals")
       .select("rep_id,payment_date,total_premium")
       .eq("office_id", OFFICE_ID);
 
-    setReps(repData || []);
-    setDeals(dealData || []);
+    if (repError || dealError) {
+      console.error("Salesboard load error:", repError || dealError);
+    }
+
+    setReps((repData ?? []) as Rep[]);
+    setDeals((dealData ?? []) as Deal[]);
     setLoading(false);
   }
 
@@ -71,30 +75,32 @@ export default function SalesboardPage() {
   }, []);
 
   const rows = useMemo(() => {
-    return reps.map((rep) => {
-      const daily: Record<string, number> = {};
+    return reps
+      .map((rep) => {
+        const daily: Record<string, number> = {};
 
-      for (const day of days) {
-        daily[day] = 0;
-      }
-
-      for (const deal of deals) {
-        if (deal.rep_id !== rep.id) continue;
-        if (!deal.payment_date) continue;
-
-        if (days.includes(deal.payment_date)) {
-          daily[deal.payment_date] += Number(deal.total_premium || 0);
+        for (const day of days) {
+          daily[day] = 0;
         }
-      }
 
-      const total = Object.values(daily).reduce((a, b) => a + b, 0);
+        for (const deal of deals) {
+          if (deal.rep_id !== rep.id) continue;
+          if (!deal.payment_date) continue;
 
-      return {
-        rep,
-        daily,
-        total,
-      };
-    });
+          if (days.includes(deal.payment_date)) {
+            daily[deal.payment_date] += Number(deal.total_premium || 0);
+          }
+        }
+
+        const total = Object.values(daily).reduce((a, b) => a + b, 0);
+
+        return {
+          rep,
+          daily,
+          total,
+        };
+      })
+      .sort((a, b) => b.total - a.total);
   }, [reps, deals, days]);
 
   if (loading) {
