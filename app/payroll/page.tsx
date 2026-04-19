@@ -14,6 +14,7 @@ type Rep = {
 type Deal = {
   id: string;
   deal_date: string;
+  payment_date: string | null;
   rep_id: string | null;
   member_id: string | null;
   status: string | null;
@@ -72,8 +73,13 @@ function formatDate(date: Date) {
   return date.toISOString().slice(0, 10);
 }
 
-function inRange(dateStr: string, start: string, end: string) {
+function inRange(dateStr: string | null, start: string, end: string) {
+  if (!dateStr) return false;
   return dateStr >= start && dateStr <= end;
+}
+
+function todayString() {
+  return new Date().toISOString().slice(0, 10);
 }
 
 export default function PayrollPage() {
@@ -227,10 +233,15 @@ export default function PayrollPage() {
   }
 
   async function updateDealStatus(dealId: string, nextStatus: string) {
-    const { error } = await supabase
-      .from("deals")
-      .update({ status: nextStatus })
-      .eq("id", dealId);
+    const updates: { status: string; payment_date?: string | null } = {
+      status: nextStatus,
+    };
+
+    if (nextStatus === "cancelled") {
+      updates.payment_date = null;
+    }
+
+    const { error } = await supabase.from("deals").update(updates).eq("id", dealId);
 
     if (error) {
       setErrorText(`Status update error: ${error.message}`);
@@ -239,7 +250,32 @@ export default function PayrollPage() {
 
     setDeals((prev) =>
       prev.map((deal) =>
-        deal.id === dealId ? { ...deal, status: nextStatus } : deal
+        deal.id === dealId ? { ...deal, ...updates } : deal
+      )
+    );
+  }
+
+  async function markDealPaidToday(dealId: string) {
+    const paidDate = todayString();
+
+    const { error } = await supabase
+      .from("deals")
+      .update({
+        payment_date: paidDate,
+        status: "active",
+      })
+      .eq("id", dealId);
+
+    if (error) {
+      setErrorText(`Payment update error: ${error.message}`);
+      return;
+    }
+
+    setDeals((prev) =>
+      prev.map((deal) =>
+        deal.id === dealId
+          ? { ...deal, payment_date: paidDate, status: "active" }
+          : deal
       )
     );
   }
@@ -289,7 +325,7 @@ export default function PayrollPage() {
   const payrollRows = useMemo(() => {
     return reps.map((rep) => {
       const repDeals = deals.filter(
-        (deal) => deal.rep_id === rep.id && inRange(deal.deal_date, startDate, endDate)
+        (deal) => deal.rep_id === rep.id && inRange(deal.payment_date, startDate, endDate)
       );
 
       const activeDeals = repDeals.filter(
@@ -298,6 +334,13 @@ export default function PayrollPage() {
 
       const cancelledDeals = repDeals.filter(
         (deal) => (deal.status ?? "active") === "cancelled"
+      );
+
+      const unpaidDeals = deals.filter(
+        (deal) =>
+          deal.rep_id === rep.id &&
+          !deal.payment_date &&
+          (deal.status ?? "pending") !== "cancelled"
       );
 
       const totalDeals = activeDeals.length;
@@ -347,6 +390,7 @@ export default function PayrollPage() {
       return {
         rep,
         repDeals,
+        unpaidDeals,
         totalDeals,
         totalPremium,
         avgPremium,
@@ -355,9 +399,6 @@ export default function PayrollPage() {
         totalCommissionWritten,
         firstWeekCancels,
         autoBonus,
-        spiffAmount,
-        manualBonusAmount,
-        advancesAmount,
         totalCommissionOwed,
       };
     });
@@ -372,7 +413,7 @@ export default function PayrollPage() {
       <div className="rounded-2xl bg-slate-950 p-6">
         <h1 className="text-3xl font-bold">Payroll</h1>
         <p className="mt-2 text-slate-400">
-          Review rep production, mark active/cancelled deals, and calculate payroll.
+          Payroll is based on payment date, not sold date.
         </p>
       </div>
 
@@ -413,7 +454,7 @@ export default function PayrollPage() {
               <div>
                 <h2 className="text-2xl font-semibold">{row.rep.name}</h2>
                 <p className="mt-1 text-sm text-slate-400">
-                  Deals: {row.totalDeals} | Total Premium: {currency(row.totalPremium)} | Avg Premium:{" "}
+                  Paid Deals: {row.totalDeals} | Paid Premium: {currency(row.totalPremium)} | Avg Premium:{" "}
                   {currency(row.avgPremium)}
                 </p>
               </div>
@@ -569,61 +610,131 @@ export default function PayrollPage() {
             </div>
 
             {expandedRepId === row.rep.id ? (
-              <div className="mt-6 overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-slate-800 text-left">
-                      <th className="py-2">Member ID</th>
-                      <th>Date Enrolled</th>
-                      <th>Plan Type</th>
-                      <th className="text-right">Health Premium</th>
-                      <th className="text-right">Add On Premium</th>
-                      <th className="text-right">Total Premium</th>
-                      <th>Status</th>
-                      <th>Lead Source</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {row.repDeals.length === 0 ? (
-                      <tr>
-                        <td colSpan={8} className="py-6 text-center text-slate-400">
-                          No deals for this rep in the selected range.
-                        </td>
-                      </tr>
-                    ) : (
-                      row.repDeals.map((deal) => {
-                        const status = deal.status ?? "active";
-                        const cancelled = status === "cancelled";
-
-                        return (
-                          <tr key={deal.id} className="border-b border-slate-900">
-                            <td className="py-2">{deal.member_id || "—"}</td>
-                            <td>{deal.deal_date}</td>
-                            <td>{getPlanName(deal.plan_id)}</td>
-                            <td className="text-right">{currency(Number(deal.limited_premium || 0))}</td>
-                            <td className="text-right">{currency(Number(deal.addon_premium || 0))}</td>
-                            <td className="text-right">{currency(Number(deal.total_premium || 0))}</td>
-                            <td>
-                              <select
-                                value={status}
-                                onChange={(e) => updateDealStatus(deal.id, e.target.value)}
-                                className={`rounded px-2 py-1 ${
-                                  cancelled
-                                    ? "bg-red-900/40 text-red-300"
-                                    : "bg-slate-800 text-white"
-                                }`}
-                              >
-                                <option value="active">Active</option>
-                                <option value="cancelled">Cancelled</option>
-                              </select>
+              <div className="mt-6 space-y-6">
+                <div>
+                  <h3 className="mb-3 text-lg font-semibold">Paid In This Payroll Period</h3>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-slate-800 text-left">
+                          <th className="py-2">Member ID</th>
+                          <th>Sold Date</th>
+                          <th>Paid Date</th>
+                          <th>Plan Type</th>
+                          <th className="text-right">Health Premium</th>
+                          <th className="text-right">Add On Premium</th>
+                          <th className="text-right">Total Premium</th>
+                          <th>Status</th>
+                          <th>Lead Source</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {row.repDeals.length === 0 ? (
+                          <tr>
+                            <td colSpan={9} className="py-6 text-center text-slate-400">
+                              No paid deals for this rep in the selected payroll period.
                             </td>
-                            <td>{getSourceName(deal.source_id)}</td>
                           </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
+                        ) : (
+                          row.repDeals.map((deal) => {
+                            const status = deal.status ?? "active";
+                            const cancelled = status === "cancelled";
+
+                            return (
+                              <tr key={deal.id} className="border-b border-slate-900">
+                                <td className="py-2">{deal.member_id || "—"}</td>
+                                <td>{deal.deal_date}</td>
+                                <td>{deal.payment_date || "—"}</td>
+                                <td>{getPlanName(deal.plan_id)}</td>
+                                <td className="text-right">
+                                  {currency(Number(deal.limited_premium || 0))}
+                                </td>
+                                <td className="text-right">
+                                  {currency(Number(deal.addon_premium || 0))}
+                                </td>
+                                <td className="text-right">
+                                  {currency(Number(deal.total_premium || 0))}
+                                </td>
+                                <td>
+                                  <select
+                                    value={status}
+                                    onChange={(e) => updateDealStatus(deal.id, e.target.value)}
+                                    className={`rounded px-2 py-1 ${
+                                      cancelled
+                                        ? "bg-red-900/40 text-red-300"
+                                        : "bg-slate-800 text-white"
+                                    }`}
+                                  >
+                                    <option value="active">Active</option>
+                                    <option value="cancelled">Cancelled</option>
+                                  </select>
+                                </td>
+                                <td>{getSourceName(deal.source_id)}</td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div>
+                  <h3 className="mb-3 text-lg font-semibold">Unpaid / Post-Dated Deals</h3>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-slate-800 text-left">
+                          <th className="py-2">Member ID</th>
+                          <th>Sold Date</th>
+                          <th>Plan Type</th>
+                          <th className="text-right">Health Premium</th>
+                          <th className="text-right">Add On Premium</th>
+                          <th className="text-right">Total Premium</th>
+                          <th>Status</th>
+                          <th>Lead Source</th>
+                          <th className="text-right">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {row.unpaidDeals.length === 0 ? (
+                          <tr>
+                            <td colSpan={9} className="py-6 text-center text-slate-400">
+                              No unpaid deals for this rep.
+                            </td>
+                          </tr>
+                        ) : (
+                          row.unpaidDeals.map((deal) => (
+                            <tr key={deal.id} className="border-b border-slate-900">
+                              <td className="py-2">{deal.member_id || "—"}</td>
+                              <td>{deal.deal_date}</td>
+                              <td>{getPlanName(deal.plan_id)}</td>
+                              <td className="text-right">
+                                {currency(Number(deal.limited_premium || 0))}
+                              </td>
+                              <td className="text-right">
+                                {currency(Number(deal.addon_premium || 0))}
+                              </td>
+                              <td className="text-right">
+                                {currency(Number(deal.total_premium || 0))}
+                              </td>
+                              <td>{deal.status ?? "pending"}</td>
+                              <td>{getSourceName(deal.source_id)}</td>
+                              <td className="text-right">
+                                <button
+                                  onClick={() => markDealPaidToday(deal.id)}
+                                  className="rounded bg-green-700 px-3 py-1 hover:bg-green-600"
+                                >
+                                  Mark Paid Today
+                                </button>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               </div>
             ) : null}
           </div>

@@ -48,8 +48,10 @@ type Plan = {
 type Deal = {
   id: string;
   deal_date: string;
+  payment_date: string | null;
   rep_id: string | null;
   member_id: string | null;
+  status: string | null;
   source_id: string | null;
   plan_id: string | null;
   limited_premium: number;
@@ -59,11 +61,15 @@ type Deal = {
 };
 
 function currency(value: number) {
-  return `$${value.toFixed(2)}`;
+  return `$${Number(value || 0).toFixed(2)}`;
+}
+
+function todayString() {
+  return new Date().toISOString().slice(0, 10);
 }
 
 export default function DailySheetPage() {
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(todayString());
   const [sources, setSources] = useState<Source[]>([]);
   const [reps, setReps] = useState<Rep[]>([]);
   const [metrics, setMetrics] = useState<Metric[]>([]);
@@ -81,6 +87,7 @@ export default function DailySheetPage() {
     limited_premium: "",
     addon_premium: "",
     aca_sold: false,
+    paid_today: true,
   });
 
   async function loadData(targetDate: string) {
@@ -195,8 +202,7 @@ export default function DailySheetPage() {
         sourceId: source.id,
         cplOverrideInput:
           metric?.cpl_override == null ? "" : String(metric.cpl_override),
-        quantityInput:
-          metric?.quantity == null ? "0" : String(metric.quantity),
+        quantityInput: metric?.quantity == null ? "0" : String(metric.quantity),
         spendOverrideInput:
           metric?.spend_override == null ? "" : String(metric.spend_override),
       };
@@ -226,9 +232,7 @@ export default function DailySheetPage() {
 
   function updateRowInput(sourceId: string, field: keyof RowState, value: string) {
     setRows((prev) =>
-      prev.map((row) =>
-        row.sourceId === sourceId ? { ...row, [field]: value } : row
-      )
+      prev.map((row) => (row.sourceId === sourceId ? { ...row, [field]: value } : row))
     );
   }
 
@@ -244,9 +248,7 @@ export default function DailySheetPage() {
     }
 
     setMetrics((prev) =>
-      prev.map((metric) =>
-        metric.id === metricId ? { ...metric, ...updates } : metric
-      )
+      prev.map((metric) => (metric.id === metricId ? { ...metric, ...updates } : metric))
     );
 
     return true;
@@ -264,6 +266,7 @@ export default function DailySheetPage() {
 
       if (!ok) return false;
     }
+
     return true;
   }
 
@@ -300,10 +303,12 @@ export default function DailySheetPage() {
     const limited = Number(dealForm.limited_premium || 0);
     const addon = Number(dealForm.addon_premium || 0);
     const total = limited + addon;
+    const paymentDate = dealForm.paid_today ? todayString() : null;
 
     const { error } = await supabase.from("deals").insert({
       office_id: OFFICE_ID,
       deal_date: date,
+      payment_date: paymentDate,
       rep_id: dealForm.rep_id,
       member_id: dealForm.member_id.trim(),
       source_id: dealForm.source_id,
@@ -312,6 +317,7 @@ export default function DailySheetPage() {
       addon_premium: addon,
       total_premium: total,
       aca_sold: dealForm.aca_sold,
+      status: paymentDate ? "active" : "pending",
     });
 
     if (error) {
@@ -327,6 +333,7 @@ export default function DailySheetPage() {
       limited_premium: "",
       addon_premium: "",
       aca_sold: false,
+      paid_today: true,
     });
     setDealModalOpen(false);
     loadData(date);
@@ -340,21 +347,23 @@ export default function DailySheetPage() {
     return rows.find((r) => r.sourceId === sourceId);
   }
 
-  function getDealsForSource(sourceId: string) {
-    return deals.filter((d) => d.source_id === sourceId);
+  function getPaidDealsForSource(sourceId: string) {
+    return deals.filter((d) => d.source_id === sourceId && d.payment_date);
   }
 
   const dailyTotals = useMemo(() => {
     let totalLeads = 0;
     let totalSpend = 0;
-    const totalSales = deals.length;
+
+    const paidDeals = deals.filter((d) => d.payment_date);
+    const totalSales = paidDeals.length;
+
     let totalPremium = 0;
     let acaWrappedDeals = 0;
 
     for (const source of sources) {
       const row = getRowForSource(source.id);
-      const cplOverride =
-        row?.cplOverrideInput === "" ? null : Number(row?.cplOverrideInput);
+      const cplOverride = row?.cplOverrideInput === "" ? null : Number(row?.cplOverrideInput);
       const quantity = Number(row?.quantityInput || 0);
       const spendOverride =
         row?.spendOverrideInput === "" ? null : Number(row?.spendOverrideInput);
@@ -366,7 +375,7 @@ export default function DailySheetPage() {
       totalSpend += effectiveSpend;
     }
 
-    for (const deal of deals) {
+    for (const deal of paidDeals) {
       totalPremium += Number(deal.total_premium || 0);
       if (deal.aca_sold) acaWrappedDeals += 1;
     }
@@ -456,8 +465,7 @@ export default function DailySheetPage() {
             const metric = getMetricForSource(source.id);
             const row = getRowForSource(source.id);
 
-            const cplOverride =
-              row?.cplOverrideInput === "" ? null : Number(row?.cplOverrideInput);
+            const cplOverride = row?.cplOverrideInput === "" ? null : Number(row?.cplOverrideInput);
             const quantity = Number(row?.quantityInput || 0);
             const spendOverride =
               row?.spendOverrideInput === "" ? null : Number(row?.spendOverrideInput);
@@ -465,7 +473,7 @@ export default function DailySheetPage() {
             const effectiveCpl = cplOverride ?? source.base_cpl;
             const effectiveSpend = spendOverride ?? quantity * effectiveCpl;
 
-            const sourceDeals = getDealsForSource(source.id);
+            const sourceDeals = getPaidDealsForSource(source.id);
             const sales = sourceDeals.length;
             const premium = sourceDeals.reduce(
               (sum, d) => sum + Number(d.total_premium || 0),
@@ -678,6 +686,20 @@ export default function DailySheetPage() {
                 />
                 <label htmlFor="aca_sold" className="text-sm text-slate-300">
                   ACA Sold?
+                </label>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <input
+                  id="paid_today"
+                  type="checkbox"
+                  checked={dealForm.paid_today}
+                  onChange={(e) =>
+                    setDealForm((prev) => ({ ...prev, paid_today: e.target.checked }))
+                  }
+                />
+                <label htmlFor="paid_today" className="text-sm text-slate-300">
+                  Paid today?
                 </label>
               </div>
 
