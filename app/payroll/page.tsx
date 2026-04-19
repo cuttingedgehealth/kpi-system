@@ -35,6 +35,19 @@ type Source = {
   name: string;
 };
 
+type PayrollEntry = {
+  id: string;
+  office_id: string;
+  rep_id: string;
+  period_start: string;
+  period_end: string;
+  override_percent: number | null;
+  spiffs: number;
+  bonus: number;
+  advances: number;
+  notes: string | null;
+};
+
 function currency(value: number) {
   return `$${Number(value || 0).toFixed(2)}`;
 }
@@ -70,17 +83,21 @@ export default function PayrollPage() {
   const [deals, setDeals] = useState<Deal[]>([]);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [sources, setSources] = useState<Source[]>([]);
+  const [payrollEntries, setPayrollEntries] = useState<PayrollEntry[]>([]);
+
   const [loading, setLoading] = useState(true);
+  const [savingMap, setSavingMap] = useState<Record<string, boolean>>({});
   const [errorText, setErrorText] = useState("");
 
   const [startDate, setStartDate] = useState(formatDate(startOfWeek(today)));
   const [endDate, setEndDate] = useState(formatDate(endOfWeek(today)));
 
-  const [spiffs, setSpiffs] = useState<Record<string, string>>({});
-  const [bonuses, setBonuses] = useState<Record<string, string>>({});
-  const [advances, setAdvances] = useState<Record<string, string>>({});
-  const [manualRates, setManualRates] = useState<Record<string, string>>({});
   const [overrideInputs, setOverrideInputs] = useState<Record<string, string>>({});
+  const [spiffsInputs, setSpiffsInputs] = useState<Record<string, string>>({});
+  const [bonusInputs, setBonusInputs] = useState<Record<string, string>>({});
+  const [advancesInputs, setAdvancesInputs] = useState<Record<string, string>>({});
+  const [notesInputs, setNotesInputs] = useState<Record<string, string>>({});
+
   const [expandedRepId, setExpandedRepId] = useState<string | null>(null);
 
   async function loadData() {
@@ -110,75 +127,103 @@ export default function PayrollPage() {
       .select("id,name")
       .eq("office_id", OFFICE_ID);
 
+    const { data: payrollData, error: payrollError } = await supabase
+      .from("payroll_entries")
+      .select("*")
+      .eq("office_id", OFFICE_ID)
+      .eq("period_start", startDate)
+      .eq("period_end", endDate);
+
     if (repError) setErrorText(`Rep load error: ${repError.message}`);
     if (dealError) setErrorText((prev) => prev || `Deal load error: ${dealError.message}`);
     if (planError) setErrorText((prev) => prev || `Plan load error: ${planError.message}`);
     if (sourceError) setErrorText((prev) => prev || `Source load error: ${sourceError.message}`);
+    if (payrollError) setErrorText((prev) => prev || `Payroll load error: ${payrollError.message}`);
 
     const repList = (repData ?? []) as Rep[];
+    const payrollList = (payrollData ?? []) as PayrollEntry[];
 
     setReps(repList);
     setDeals((dealData ?? []) as Deal[]);
     setPlans((planData ?? []) as Plan[]);
     setSources((sourceData ?? []) as Source[]);
+    setPayrollEntries(payrollList);
 
-    setOverrideInputs((prev) => {
-      const next = { ...prev };
-      for (const rep of repList) {
-        if (!(rep.id in next)) {
-          next[rep.id] = manualRates[rep.id] ?? "";
-        }
-      }
-      return next;
-    });
+    const overrideNext: Record<string, string> = {};
+    const spiffsNext: Record<string, string> = {};
+    const bonusNext: Record<string, string> = {};
+    const advancesNext: Record<string, string> = {};
+    const notesNext: Record<string, string> = {};
+
+    for (const rep of repList) {
+      const entry = payrollList.find((p) => p.rep_id === rep.id);
+      overrideNext[rep.id] =
+        entry?.override_percent != null ? String(entry.override_percent) : "";
+      spiffsNext[rep.id] = entry ? String(entry.spiffs ?? 0) : "";
+      bonusNext[rep.id] = entry ? String(entry.bonus ?? 0) : "";
+      advancesNext[rep.id] = entry ? String(entry.advances ?? 0) : "";
+      notesNext[rep.id] = entry?.notes ?? "";
+    }
+
+    setOverrideInputs(overrideNext);
+    setSpiffsInputs(spiffsNext);
+    setBonusInputs(bonusNext);
+    setAdvancesInputs(advancesNext);
+    setNotesInputs(notesNext);
 
     setLoading(false);
   }
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [startDate, endDate]);
 
-  function syncOverrideInput(repId: string, value: string) {
-    setOverrideInputs((prev) => ({ ...prev, [repId]: value }));
+  function getPlanName(planId: string | null) {
+    if (!planId) return "—";
+    return plans.find((p) => p.id === planId)?.name ?? "—";
   }
 
-  function commitManualRate(repId: string) {
-    const typedValue = (overrideInputs[repId] ?? "").trim();
-    const currentSaved = manualRates[repId] ?? "";
+  function getSourceName(sourceId: string | null) {
+    if (!sourceId) return "—";
+    return sources.find((s) => s.id === sourceId)?.name ?? "—";
+  }
 
-    if (typedValue === currentSaved) return;
+  function getPayrollEntry(repId: string) {
+    return payrollEntries.find((entry) => entry.rep_id === repId);
+  }
 
-    if (typedValue === "") {
-      const confirmed = window.confirm(
-        "Clear the manual override and go back to the default/tier logic?"
-      );
-      if (!confirmed) {
-        setOverrideInputs((prev) => ({ ...prev, [repId]: currentSaved }));
-        return;
-      }
+  async function upsertPayrollEntry(repId: string, updates: Partial<PayrollEntry>) {
+    setErrorText("");
+    setSavingMap((prev) => ({ ...prev, [repId]: true }));
 
-      setManualRates((prev) => ({ ...prev, [repId]: "" }));
+    const existing = getPayrollEntry(repId);
+
+    const payload = {
+      office_id: OFFICE_ID,
+      rep_id: repId,
+      period_start: startDate,
+      period_end: endDate,
+      override_percent: updates.override_percent ?? existing?.override_percent ?? null,
+      spiffs: updates.spiffs ?? existing?.spiffs ?? 0,
+      bonus: updates.bonus ?? existing?.bonus ?? 0,
+      advances: updates.advances ?? existing?.advances ?? 0,
+      notes: updates.notes ?? existing?.notes ?? "",
+    };
+
+    const query = existing
+      ? supabase.from("payroll_entries").update(payload).eq("id", existing.id)
+      : supabase.from("payroll_entries").insert(payload);
+
+    const { error } = await query;
+
+    if (error) {
+      setErrorText(`Payroll save error: ${error.message}`);
+      setSavingMap((prev) => ({ ...prev, [repId]: false }));
       return;
     }
 
-    const numericValue = Number(typedValue);
-
-    if (Number.isNaN(numericValue) || numericValue <= 0) {
-      setOverrideInputs((prev) => ({ ...prev, [repId]: currentSaved }));
-      return;
-    }
-
-    const confirmed = window.confirm(
-      `Override this rep's base commission rate to ${numericValue}%?`
-    );
-
-    if (!confirmed) {
-      setOverrideInputs((prev) => ({ ...prev, [repId]: currentSaved }));
-      return;
-    }
-
-    setManualRates((prev) => ({ ...prev, [repId]: typedValue }));
+    await loadData();
+    setSavingMap((prev) => ({ ...prev, [repId]: false }));
   }
 
   async function updateDealStatus(dealId: string, nextStatus: string) {
@@ -199,14 +244,46 @@ export default function PayrollPage() {
     );
   }
 
-  function getPlanName(planId: string | null) {
-    if (!planId) return "—";
-    return plans.find((p) => p.id === planId)?.name ?? "—";
-  }
+  function commitManualRate(repId: string) {
+    const typedValue = (overrideInputs[repId] ?? "").trim();
+    const currentSavedEntry = getPayrollEntry(repId);
+    const currentSaved =
+      currentSavedEntry?.override_percent != null
+        ? String(currentSavedEntry.override_percent)
+        : "";
 
-  function getSourceName(sourceId: string | null) {
-    if (!sourceId) return "—";
-    return sources.find((s) => s.id === sourceId)?.name ?? "—";
+    if (typedValue === currentSaved) return;
+
+    if (typedValue === "") {
+      const confirmed = window.confirm(
+        "Clear the manual override and go back to the default/tier logic?"
+      );
+      if (!confirmed) {
+        setOverrideInputs((prev) => ({ ...prev, [repId]: currentSaved }));
+        return;
+      }
+
+      upsertPayrollEntry(repId, { override_percent: null });
+      return;
+    }
+
+    const numericValue = Number(typedValue);
+
+    if (Number.isNaN(numericValue) || numericValue <= 0) {
+      setOverrideInputs((prev) => ({ ...prev, [repId]: currentSaved }));
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Override this rep's base commission rate to ${numericValue}%?`
+    );
+
+    if (!confirmed) {
+      setOverrideInputs((prev) => ({ ...prev, [repId]: currentSaved }));
+      return;
+    }
+
+    upsertPayrollEntry(repId, { override_percent: numericValue });
   }
 
   const payrollRows = useMemo(() => {
@@ -235,6 +312,10 @@ export default function PayrollPage() {
         0
       );
 
+      const savedEntry = getPayrollEntry(rep.id);
+      const savedOverride =
+        savedEntry?.override_percent != null ? Number(savedEntry.override_percent) / 100 : null;
+
       const baseRate = 0.4;
       let tierRate = 0.4;
 
@@ -244,22 +325,16 @@ export default function PayrollPage() {
         tierRate = 0.45;
       }
 
-      const manualRateValue = manualRates[rep.id];
-      const manualRate =
-        manualRateValue !== undefined && manualRateValue !== ""
-          ? Number(manualRateValue) / 100
-          : null;
-
-      const appliedBaseRate = manualRate ?? baseRate;
-      const tierBonusRate = Math.max(tierRate - 0.4, 0);
+      const appliedBaseRate = savedOverride ?? baseRate;
+      const tierBonusRate = savedOverride == null ? Math.max(tierRate - 0.4, 0) : 0;
 
       const totalCommissionWritten = totalPremium * appliedBaseRate;
       const firstWeekCancels = totalCancelledPremium * appliedBaseRate;
 
-      const autoBonus = manualRate === null ? totalPremium * tierBonusRate : 0;
-      const spiffAmount = Number(spiffs[rep.id] || 0);
-      const manualBonusAmount = Number(bonuses[rep.id] || 0);
-      const advancesAmount = Number(advances[rep.id] || 0);
+      const autoBonus = totalPremium * tierBonusRate;
+      const spiffAmount = Number(savedEntry?.spiffs ?? 0);
+      const manualBonusAmount = Number(savedEntry?.bonus ?? 0);
+      const advancesAmount = Number(savedEntry?.advances ?? 0);
 
       const totalCommissionOwed =
         totalCommissionWritten -
@@ -280,10 +355,13 @@ export default function PayrollPage() {
         totalCommissionWritten,
         firstWeekCancels,
         autoBonus,
+        spiffAmount,
+        manualBonusAmount,
+        advancesAmount,
         totalCommissionOwed,
       };
     });
-  }, [reps, deals, startDate, endDate, spiffs, bonuses, advances, manualRates]);
+  }, [reps, deals, payrollEntries, startDate, endDate]);
 
   if (loading) {
     return <div className="p-6 text-white">Loading payroll...</div>;
@@ -348,7 +426,12 @@ export default function PayrollPage() {
                   type="number"
                   step="0.01"
                   value={overrideInputs[row.rep.id] ?? ""}
-                  onChange={(e) => syncOverrideInput(row.rep.id, e.target.value)}
+                  onChange={(e) =>
+                    setOverrideInputs((prev) => ({
+                      ...prev,
+                      [row.rep.id]: e.target.value,
+                    }))
+                  }
                   onBlur={() => commitManualRate(row.rep.id)}
                   placeholder={`${(row.appliedBaseRate * 100).toFixed(0)}`}
                   className="w-full rounded bg-slate-800 px-3 py-2"
@@ -373,9 +456,17 @@ export default function PayrollPage() {
                       <input
                         type="number"
                         step="0.01"
-                        value={spiffs[row.rep.id] ?? ""}
+                        value={spiffsInputs[row.rep.id] ?? ""}
                         onChange={(e) =>
-                          setSpiffs((prev) => ({ ...prev, [row.rep.id]: e.target.value }))
+                          setSpiffsInputs((prev) => ({
+                            ...prev,
+                            [row.rep.id]: e.target.value,
+                          }))
+                        }
+                        onBlur={() =>
+                          upsertPayrollEntry(row.rep.id, {
+                            spiffs: Number(spiffsInputs[row.rep.id] || 0),
+                          })
                         }
                         className="w-28 rounded bg-slate-800 px-2 py-1 text-right"
                       />
@@ -391,9 +482,17 @@ export default function PayrollPage() {
                         <input
                           type="number"
                           step="0.01"
-                          value={bonuses[row.rep.id] ?? ""}
+                          value={bonusInputs[row.rep.id] ?? ""}
                           onChange={(e) =>
-                            setBonuses((prev) => ({ ...prev, [row.rep.id]: e.target.value }))
+                            setBonusInputs((prev) => ({
+                              ...prev,
+                              [row.rep.id]: e.target.value,
+                            }))
+                          }
+                          onBlur={() =>
+                            upsertPayrollEntry(row.rep.id, {
+                              bonus: Number(bonusInputs[row.rep.id] || 0),
+                            })
                           }
                           className="w-28 rounded bg-slate-800 px-2 py-1 text-right"
                         />
@@ -406,9 +505,17 @@ export default function PayrollPage() {
                       <input
                         type="number"
                         step="0.01"
-                        value={advances[row.rep.id] ?? ""}
+                        value={advancesInputs[row.rep.id] ?? ""}
                         onChange={(e) =>
-                          setAdvances((prev) => ({ ...prev, [row.rep.id]: e.target.value }))
+                          setAdvancesInputs((prev) => ({
+                            ...prev,
+                            [row.rep.id]: e.target.value,
+                          }))
+                        }
+                        onBlur={() =>
+                          upsertPayrollEntry(row.rep.id, {
+                            advances: Number(advancesInputs[row.rep.id] || 0),
+                          })
                         }
                         className="w-28 rounded bg-slate-800 px-2 py-1 text-right"
                       />
@@ -424,10 +531,31 @@ export default function PayrollPage() {
               </table>
             </div>
 
+            <div className="mt-4">
+              <label className="mb-1 block text-sm text-slate-400">Notes</label>
+              <textarea
+                value={notesInputs[row.rep.id] ?? ""}
+                onChange={(e) =>
+                  setNotesInputs((prev) => ({
+                    ...prev,
+                    [row.rep.id]: e.target.value,
+                  }))
+                }
+                onBlur={() =>
+                  upsertPayrollEntry(row.rep.id, {
+                    notes: notesInputs[row.rep.id] ?? "",
+                  })
+                }
+                className="min-h-[80px] w-full rounded bg-slate-800 px-3 py-2"
+                placeholder="Optional payroll notes"
+              />
+            </div>
+
             <div className="mt-6 flex items-center justify-between">
               <div className="text-sm text-slate-400">
                 Applied Base Rate: {(row.appliedBaseRate * 100).toFixed(2)}% | Tier Rate:{" "}
                 {(row.tierRate * 100).toFixed(2)}%
+                {savingMap[row.rep.id] ? " | Saving..." : ""}
               </div>
 
               <button
