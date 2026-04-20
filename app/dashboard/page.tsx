@@ -386,9 +386,9 @@ export default function DashboardPage() {
 
         <div className="overflow-hidden rounded-2xl border border-white/10 bg-slate-900/40">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[980px] text-sm">
+            <table className="w-full min-w-[980px] text-[15px]">
               <thead>
-                <tr className="border-b border-white/10 bg-white/[0.03] text-left text-xs uppercase tracking-[0.18em] text-slate-400">
+                <tr className="border-b border-white/10 bg-white/[0.03] text-left text-sm uppercase tracking-[0.18em] text-slate-400">
                   <th className="px-4 py-4 font-medium">Source</th>
                   <th className="px-4 py-4 font-medium">Type</th>
                   <th className="px-4 py-4 text-right font-medium">Leads</th>
