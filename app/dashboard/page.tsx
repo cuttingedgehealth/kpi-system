@@ -26,6 +26,10 @@ type Metric = {
 type Deal = {
   id: string;
   deal_date: string;
+  payment_date: string | null;
+  rep_id: string | null;
+  member_id: string | null;
+  status: string | null;
   source_id: string | null;
   plan_id: string | null;
   limited_premium: number;
@@ -35,11 +39,11 @@ type Deal = {
 };
 
 function currency(value: number) {
-  return `$${value.toFixed(2)}`;
+  return `$${Number(value || 0).toFixed(2)}`;
 }
 
 function percent(value: number) {
-  return `${value.toFixed(2)}%`;
+  return `${Number(value || 0).toFixed(2)}%`;
 }
 
 function startOfWeek(date: Date) {
@@ -70,7 +74,8 @@ function formatDateForInput(date: Date) {
   return date.toISOString().slice(0, 10);
 }
 
-function inDateRange(dateStr: string, start: string, end: string) {
+function inDateRange(dateStr: string | null, start: string, end: string) {
+  if (!dateStr) return false;
   return dateStr >= start && dateStr <= end;
 }
 
@@ -101,33 +106,19 @@ export default function DashboardPage() {
       .eq("active", true)
       .order("display_order", { ascending: true });
 
-    if (sourceError) {
-      setErrorText(`Source load error: ${sourceError.message}`);
-      setLoading(false);
-      return;
-    }
-
     const { data: metricData, error: metricError } = await supabase
       .from("daily_metrics")
       .select("*")
       .eq("office_id", OFFICE_ID);
-
-    if (metricError) {
-      setErrorText(`Metric load error: ${metricError.message}`);
-      setLoading(false);
-      return;
-    }
 
     const { data: dealData, error: dealError } = await supabase
       .from("deals")
       .select("*")
       .eq("office_id", OFFICE_ID);
 
-    if (dealError) {
-      setErrorText(`Deal load error: ${dealError.message}`);
-      setLoading(false);
-      return;
-    }
+    if (sourceError) setErrorText(`Source load error: ${sourceError.message}`);
+    if (metricError) setErrorText((prev) => prev || `Metric load error: ${metricError.message}`);
+    if (dealError) setErrorText((prev) => prev || `Deal load error: ${dealError.message}`);
 
     setSources((sourceData ?? []) as Source[]);
     setMetrics((metricData ?? []) as Metric[]);
@@ -144,28 +135,26 @@ export default function DashboardPage() {
       start: formatDateForInput(startOfWeek(today)),
       end: formatDateForInput(endOfWeek(today)),
     };
-  }, []);
+  }, [today]);
 
   const monthRange = useMemo(() => {
     return {
       start: formatDateForInput(startOfMonth(today)),
       end: formatDateForInput(endOfMonth(today)),
     };
-  }, []);
+  }, [today]);
 
   const yearRange = useMemo(() => {
     return {
       start: `${today.getFullYear()}-01-01`,
       end: `${today.getFullYear()}-12-31`,
     };
-  }, []);
+  }, [today]);
 
   function computeRangeStats(start: string, end: string) {
-    const filteredMetrics = metrics.filter((m) =>
-      inDateRange(m.metric_date, start, end)
-    );
-    const filteredDeals = deals.filter((d) =>
-      inDateRange(d.deal_date, start, end)
+    const filteredMetrics = metrics.filter((m) => inDateRange(m.metric_date, start, end));
+    const filteredDeals = deals.filter(
+      (d) => inDateRange(d.payment_date, start, end) && (d.status ?? "active") !== "cancelled"
     );
 
     let totalSpend = 0;
@@ -218,17 +207,17 @@ export default function DashboardPage() {
 
   const weekStats = useMemo(
     () => computeRangeStats(weekRange.start, weekRange.end),
-    [metrics, deals, sources]
+    [metrics, deals, sources, weekRange.start, weekRange.end]
   );
 
   const monthStats = useMemo(
     () => computeRangeStats(monthRange.start, monthRange.end),
-    [metrics, deals, sources]
+    [metrics, deals, sources, monthRange.start, monthRange.end]
   );
 
   const yearStats = useMemo(
     () => computeRangeStats(yearRange.start, yearRange.end),
-    [metrics, deals, sources]
+    [metrics, deals, sources, yearRange.start, yearRange.end]
   );
 
   const customStats = useMemo(
@@ -248,7 +237,8 @@ export default function DashboardPage() {
         const sourceDeals = deals.filter(
           (d) =>
             d.source_id === source.id &&
-            inDateRange(d.deal_date, customStart, customEnd)
+            inDateRange(d.payment_date, customStart, customEnd) &&
+            (d.status ?? "active") !== "cancelled"
         );
 
         let spend = 0;
@@ -295,145 +285,197 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="space-y-6 text-white">
-      <div className="rounded-2xl bg-slate-950 p-6">
-        <h1 className="text-3xl font-bold">Performance Dashboard</h1>
-        <p className="mt-2 text-slate-400">
-          Weekly rollups, source rankings, and office economics at a glance.
-        </p>
-      </div>
+    <div className="space-y-8 text-white">
+      <section className="relative overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-8 shadow-2xl">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(59,130,246,0.14),transparent_25%),radial-gradient(circle_at_bottom_left,rgba(16,185,129,0.08),transparent_20%)]" />
+        <div className="relative flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <div className="mb-3 inline-flex items-center rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium uppercase tracking-[0.2em] text-slate-400">
+              Performance Command Center
+            </div>
+            <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
+              Office Dashboard
+            </h1>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400 sm:text-base">
+              Clean weekly decision view across spend, premium, CAC, conversion, and source quality.
+              Metrics below are based on cleared payments only.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <HeroMetric label="Week Spend" value={currency(weekStats.totalSpend)} />
+            <HeroMetric label="Week Premium" value={currency(weekStats.totalPremium)} />
+            <HeroMetric label="Week P/S" value={`${weekStats.ps.toFixed(2)}x`} />
+            <HeroMetric label="Week Sales" value={String(weekStats.totalSales)} />
+          </div>
+        </div>
+      </section>
 
       {errorText ? (
-        <div className="rounded bg-red-900/40 px-4 py-3 text-sm text-red-300">
+        <div className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
           {errorText}
         </div>
       ) : null}
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        <RangeCard title="Current Week" stats={weekStats} />
-        <RangeCard title="Month to Date" stats={monthStats} />
-        <RangeCard title="Year to Date" stats={yearStats} />
-      </div>
+      <section className="grid gap-5 xl:grid-cols-3">
+        <PeriodCard title="Current Week" subtitle={`${weekRange.start} → ${weekRange.end}`} stats={weekStats} />
+        <PeriodCard title="Month to Date" subtitle={`${monthRange.start} → ${monthRange.end}`} stats={monthStats} />
+        <PeriodCard title="Year to Date" subtitle={`${yearRange.start} → ${yearRange.end}`} stats={yearStats} />
+      </section>
 
-      <div className="rounded-2xl bg-slate-950 p-6">
-        <div className="mb-4 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+      <section className="rounded-3xl border border-white/10 bg-slate-950/80 p-6 shadow-xl">
+        <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <h2 className="text-2xl font-semibold">Custom Range</h2>
-            <p className="mt-1 text-sm text-slate-400">
-              Use this range for source rankings and summary tiles below.
+            <h2 className="text-2xl font-semibold tracking-tight">Custom Range</h2>
+            <p className="mt-2 text-sm text-slate-400">
+              Use this section as your weekly decision board for source buying and pacing.
             </p>
           </div>
 
-          <div className="flex gap-3">
-            <div>
-              <label className="mb-1 block text-sm text-slate-400">Start</label>
-              <input
-                type="date"
-                value={customStart}
-                onChange={(e) => setCustomStart(e.target.value)}
-                className="rounded bg-slate-800 px-3 py-2"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm text-slate-400">End</label>
-              <input
-                type="date"
-                value={customEnd}
-                onChange={(e) => setCustomEnd(e.target.value)}
-                className="rounded bg-slate-800 px-3 py-2"
-              />
-            </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <DateField label="Start" value={customStart} onChange={setCustomStart} />
+            <DateField label="End" value={customEnd} onChange={setCustomEnd} />
           </div>
         </div>
 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <MiniTile label="Spend" value={currency(customStats.totalSpend)} />
-          <MiniTile label="Sales" value={String(customStats.totalSales)} />
-          <MiniTile label="Premium" value={currency(customStats.totalPremium)} />
-          <MiniTile label="Leads" value={String(customStats.totalLeads)} />
-          <MiniTile label="CAC" value={currency(customStats.cac)} />
-          <MiniTile label="Conversion" value={percent(customStats.conversion)} />
-          <MiniTile label="P/S Ratio" value={`${customStats.ps.toFixed(2)}x`} />
-          <MiniTile label="ACA Wrapped %" value={percent(customStats.acaWrappedPct)} />
-        </div>
-      </div>
-
-      <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-5">
-        <MiniStatCard title="Inbound Leads" value={String(customStats.inboundLeads)} />
-        <MiniStatCard title="Data Leads" value={String(customStats.dataLeads)} />
-        <MiniStatCard title="Avg Premium" value={currency(customStats.avgPremium)} />
-        <MiniStatCard title="Total Spend" value={currency(customStats.totalSpend)} />
-        <MiniStatCard title="P/S Ratio" value={`${customStats.ps.toFixed(2)}x`} />
-      </div>
-
-      <div className="rounded-2xl bg-slate-950 p-6">
-        <div className="mb-4">
-          <h2 className="text-2xl font-semibold">Source Rankings</h2>
-          <p className="mt-1 text-sm text-slate-400">
-            Ranked by P/S ratio for the selected custom range.
-          </p>
+          <KpiTile label="Spend" value={currency(customStats.totalSpend)} />
+          <KpiTile label="Sales" value={String(customStats.totalSales)} />
+          <KpiTile label="Premium" value={currency(customStats.totalPremium)} />
+          <KpiTile label="Leads" value={String(customStats.totalLeads)} />
+          <KpiTile
+            label="CAC"
+            value={currency(customStats.cac)}
+            danger={customStats.totalSales > 0 && customStats.cac > 499.99}
+          />
+          <KpiTile label="Conversion" value={percent(customStats.conversion)} />
+          <KpiTile
+            label="P/S Ratio"
+            value={`${customStats.ps.toFixed(2)}x`}
+            danger={customStats.totalSpend > 0 && customStats.ps < 0.74}
+            strong={customStats.ps >= 1.5}
+          />
+          <KpiTile label="ACA Wrapped %" value={percent(customStats.acaWrappedPct)} />
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-800 text-left">
-                <th className="py-2">Source</th>
-                <th>Type</th>
-                <th className="text-right">Leads</th>
-                <th className="text-right">Spend</th>
-                <th className="text-right">Sales</th>
-                <th className="text-right">CAC</th>
-                <th className="text-right">Premium</th>
-                <th className="text-right">P/S</th>
-                <th className="text-right">Conversion</th>
-                <th className="text-right">ACA Wrapped %</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sourceRankings.map((row) => {
-                const psClass =
-                  row.ps >= 1.5
-                    ? "text-green-400"
-                    : row.ps > 0 && row.ps < 1
-                    ? "text-red-400"
-                    : "text-white";
-
-                const cacClass =
-                  row.sales > 0 && row.cac > 499.99 ? "text-red-400 font-semibold" : "";
-
-                return (
-                  <tr key={row.source.id} className="border-b border-slate-900">
-                    <td className="py-2">{row.source.name}</td>
-                    <td className="capitalize">{row.source.type}</td>
-                    <td className="text-right">{row.leads}</td>
-                    <td className="text-right">{currency(row.spend)}</td>
-                    <td className="text-right">{row.sales}</td>
-                    <td className={`text-right ${cacClass}`}>
-                      {row.sales > 0 ? currency(row.cac) : "—"}
-                    </td>
-                    <td className="text-right">{currency(row.premium)}</td>
-                    <td className={`text-right font-semibold ${psClass}`}>
-                      {row.spend > 0 ? `${row.ps.toFixed(2)}x` : "—"}
-                    </td>
-                    <td className="text-right">{percent(row.conversion)}</td>
-                    <td className="text-right">{percent(row.acaWrappedPct)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+        <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+          <SubMetric label="Inbound Leads" value={String(customStats.inboundLeads)} />
+          <SubMetric label="Data Leads" value={String(customStats.dataLeads)} />
+          <SubMetric label="Avg Premium" value={currency(customStats.avgPremium)} />
+          <SubMetric label="Spend" value={currency(customStats.totalSpend)} />
+          <SubMetric
+            label="P/S"
+            value={`${customStats.ps.toFixed(2)}x`}
+            accent={customStats.ps >= 1.5 ? "good" : customStats.ps > 0 && customStats.ps < 0.74 ? "bad" : "neutral"}
+          />
         </div>
-      </div>
+      </section>
+
+      <section className="rounded-3xl border border-white/10 bg-slate-950/80 p-6 shadow-xl">
+        <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2 className="text-2xl font-semibold tracking-tight">Source Rankings</h2>
+            <p className="mt-1 text-sm text-slate-400">
+              Ranked by P/S ratio for the selected custom range.
+            </p>
+          </div>
+          <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
+            Cleared payments only
+          </div>
+        </div>
+
+        <div className="overflow-hidden rounded-2xl border border-white/10 bg-slate-900/40">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[980px] text-sm">
+              <thead>
+                <tr className="border-b border-white/10 bg-white/[0.03] text-left text-xs uppercase tracking-[0.18em] text-slate-400">
+                  <th className="px-4 py-4 font-medium">Source</th>
+                  <th className="px-4 py-4 font-medium">Type</th>
+                  <th className="px-4 py-4 text-right font-medium">Leads</th>
+                  <th className="px-4 py-4 text-right font-medium">Spend</th>
+                  <th className="px-4 py-4 text-right font-medium">Sales</th>
+                  <th className="px-4 py-4 text-right font-medium">CAC</th>
+                  <th className="px-4 py-4 text-right font-medium">Premium</th>
+                  <th className="px-4 py-4 text-right font-medium">P/S</th>
+                  <th className="px-4 py-4 text-right font-medium">Conversion</th>
+                  <th className="px-4 py-4 text-right font-medium">ACA %</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sourceRankings.map((row, index) => {
+                  const psBad = row.spend > 0 && row.ps < 0.74;
+                  const psStrong = row.ps >= 1.5;
+                  const cacBad = row.sales > 0 && row.cac > 499.99;
+
+                  return (
+                    <tr
+                      key={row.source.id}
+                      className="border-b border-white/5 transition-colors hover:bg-white/[0.03]"
+                    >
+                      <td className="px-4 py-4">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-8 w-8 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] text-xs font-semibold text-slate-300">
+                            {index + 1}
+                          </div>
+                          <div>
+                            <div className="font-medium text-white">{row.source.name}</div>
+                            <div className="text-xs text-slate-500">
+                              {row.source.type === "inbound" ? "Inbound" : "Data"}
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-4 text-slate-300 capitalize">{row.source.type}</td>
+                      <td className="px-4 py-4 text-right text-slate-200">{row.leads}</td>
+                      <td className="px-4 py-4 text-right text-slate-200">{currency(row.spend)}</td>
+                      <td className="px-4 py-4 text-right text-slate-200">{row.sales}</td>
+                      <td className={`px-4 py-4 text-right font-medium ${cacBad ? "text-red-400" : "text-slate-200"}`}>
+                        {row.sales > 0 ? currency(row.cac) : "—"}
+                      </td>
+                      <td className="px-4 py-4 text-right font-medium text-slate-100">
+                        {currency(row.premium)}
+                      </td>
+                      <td
+                        className={`px-4 py-4 text-right font-semibold ${
+                          psStrong ? "text-emerald-400" : psBad ? "text-red-400" : "text-slate-100"
+                        }`}
+                      >
+                        {row.spend > 0 ? `${row.ps.toFixed(2)}x` : "—"}
+                      </td>
+                      <td className="px-4 py-4 text-right text-slate-200">
+                        {percent(row.conversion)}
+                      </td>
+                      <td className="px-4 py-4 text-right text-slate-200">
+                        {percent(row.acaWrappedPct)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
     </div>
   );
 }
 
-function RangeCard({
+function HeroMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 backdrop-blur">
+      <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">{label}</div>
+      <div className="mt-1 text-xl font-semibold text-white">{value}</div>
+    </div>
+  );
+}
+
+function PeriodCard({
   title,
+  subtitle,
   stats,
 }: {
   title: string;
+  subtitle: string;
   stats: {
     totalSpend: number;
     totalLeads: number;
@@ -448,63 +490,130 @@ function RangeCard({
     acaWrappedPct: number;
   };
 }) {
+  const psBad = stats.totalSpend > 0 && stats.ps < 0.74;
+  const psStrong = stats.ps >= 1.5;
+  const cacBad = stats.totalSales > 0 && stats.cac > 499.99;
+
   return (
-    <div className="rounded-2xl bg-slate-950 p-6">
-      <h2 className="text-2xl font-semibold">{title}</h2>
+    <div className="rounded-3xl border border-white/10 bg-slate-950/80 p-6 shadow-xl">
+      <div className="mb-6">
+        <div className="text-xs uppercase tracking-[0.18em] text-slate-500">{subtitle}</div>
+        <h2 className="mt-2 text-2xl font-semibold tracking-tight">{title}</h2>
+      </div>
 
-      <div className="mt-6 grid grid-cols-2 gap-6">
-        <div>
-          <div className="text-sm text-slate-400">Total Sales</div>
-          <div className="mt-1 text-4xl font-bold">{stats.totalSales}</div>
-        </div>
-
-        <div>
-          <div className="text-sm text-slate-400">Total Premium</div>
-          <div className="mt-1 text-4xl font-bold">{currency(stats.totalPremium)}</div>
-        </div>
-
-        <div>
-          <div className="text-sm text-slate-400">Avg Premium</div>
-          <div className="mt-1 text-2xl font-semibold">{currency(stats.avgPremium)}</div>
-        </div>
-
-        <div>
-          <div className="text-sm text-slate-400">CAC</div>
-          <div className={`mt-1 text-2xl font-semibold ${stats.totalSales > 0 && stats.cac > 499.99 ? "text-red-400" : ""}`}>
-            {currency(stats.cac)}
-          </div>
-        </div>
-
-        <div>
-          <div className="text-sm text-slate-400">Spend</div>
-          <div className="mt-1 text-2xl font-semibold">{currency(stats.totalSpend)}</div>
-        </div>
-
-        <div>
-          <div className="text-sm text-slate-400">P/S Ratio</div>
-          <div className={`mt-1 text-2xl font-semibold ${stats.totalSpend > 0 && stats.ps < 0.74 ? "text-red-400" : ""}`}>
-            {stats.ps.toFixed(2)}x
-          </div>
-        </div>
+      <div className="grid grid-cols-2 gap-4">
+        <MiniPanel label="Sales" value={String(stats.totalSales)} />
+        <MiniPanel label="Premium" value={currency(stats.totalPremium)} />
+        <MiniPanel label="Avg Premium" value={currency(stats.avgPremium)} />
+        <MiniPanel label="Spend" value={currency(stats.totalSpend)} />
+        <MiniPanel
+          label="CAC"
+          value={currency(stats.cac)}
+          danger={cacBad}
+        />
+        <MiniPanel
+          label="P/S"
+          value={`${stats.ps.toFixed(2)}x`}
+          danger={psBad}
+          strong={psStrong}
+        />
       </div>
     </div>
   );
 }
 
-function MiniTile({ label, value }: { label: string; value: string }) {
+function MiniPanel({
+  label,
+  value,
+  danger = false,
+  strong = false,
+}: {
+  label: string;
+  value: string;
+  danger?: boolean;
+  strong?: boolean;
+}) {
   return (
-    <div className="rounded-xl bg-slate-900 p-4">
-      <div className="text-sm text-slate-400">{label}</div>
-      <div className="mt-2 text-2xl font-bold">{value}</div>
+    <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
+      <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</div>
+      <div
+        className={`mt-2 text-lg font-semibold ${
+          strong ? "text-emerald-400" : danger ? "text-red-400" : "text-white"
+        }`}
+      >
+        {value}
+      </div>
     </div>
   );
 }
 
-function MiniStatCard({ title, value }: { title: string; value: string }) {
+function DateField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
   return (
-    <div className="rounded-2xl bg-slate-950 p-5">
-      <div className="text-sm uppercase tracking-wide text-slate-400">{title}</div>
-      <div className="mt-3 text-3xl font-bold">{value}</div>
+    <label className="block">
+      <div className="mb-2 text-xs uppercase tracking-[0.18em] text-slate-500">{label}</div>
+      <input
+        type="date"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-sm text-white outline-none transition focus:border-slate-400"
+      />
+    </label>
+  );
+}
+
+function KpiTile({
+  label,
+  value,
+  danger = false,
+  strong = false,
+}: {
+  label: string;
+  value: string;
+  danger?: boolean;
+  strong?: boolean;
+}) {
+  return (
+    <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-5">
+      <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</div>
+      <div
+        className={`mt-3 text-2xl font-semibold tracking-tight ${
+          strong ? "text-emerald-400" : danger ? "text-red-400" : "text-white"
+        }`}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function SubMetric({
+  label,
+  value,
+  accent = "neutral",
+}: {
+  label: string;
+  value: string;
+  accent?: "neutral" | "good" | "bad";
+}) {
+  const accentClass =
+    accent === "good"
+      ? "text-emerald-400"
+      : accent === "bad"
+      ? "text-red-400"
+      : "text-white";
+
+  return (
+    <div className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-4">
+      <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</div>
+      <div className={`mt-2 text-lg font-semibold ${accentClass}`}>{value}</div>
     </div>
   );
 }
