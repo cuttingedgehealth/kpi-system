@@ -79,6 +79,7 @@ export default function DailySheetPage() {
   const [loading, setLoading] = useState(true);
   const [errorText, setErrorText] = useState("");
   const [dealModalOpen, setDealModalOpen] = useState(false);
+
   const [dealForm, setDealForm] = useState({
     rep_id: "",
     member_id: "",
@@ -98,8 +99,7 @@ export default function DailySheetPage() {
       .from("sources")
       .select("*")
       .eq("office_id", OFFICE_ID)
-      .eq("active", true)
-      .order("display_order", { ascending: true });
+      .eq("active", true);
 
     if (sourceError) {
       setErrorText(`Source load error: ${sourceError.message}`);
@@ -107,7 +107,12 @@ export default function DailySheetPage() {
       return;
     }
 
-    const sourceList = (sourceData ?? []) as Source[];
+    const sourceList = ((sourceData ?? []) as Source[]).sort((a, b) => {
+      if (a.type !== b.type) {
+        return a.type.localeCompare(b.type);
+      }
+      return a.name.localeCompare(b.name);
+    });
     setSources(sourceList);
 
     const { data: repData, error: repError } = await supabase
@@ -397,192 +402,149 @@ export default function DailySheetPage() {
     };
   }, [sources, rows, deals]);
 
+  const inboundSources = useMemo(
+    () => sources.filter((source) => source.type === "inbound"),
+    [sources]
+  );
+
+  const dataSources = useMemo(
+    () => sources.filter((source) => source.type === "data"),
+    [sources]
+  );
+
   if (loading) {
     return <div className="p-6 text-white">Loading daily sheet...</div>;
   }
 
   return (
-    <div className="space-y-6 text-white">
-      <div className="flex items-center gap-4">
-        <input
-          type="date"
-          value={date}
-          onChange={(e) => handleDateChange(e.target.value)}
-          className="rounded bg-slate-800 p-2"
-        />
-
-        <button
-          onClick={() => setDealModalOpen(true)}
-          className="rounded bg-orange-600 px-4 py-2 hover:bg-orange-500"
-        >
-          Enter Deal
-        </button>
-
-        {errorText ? (
-          <div className="rounded bg-red-900/40 px-3 py-2 text-sm text-red-300">
-            {errorText}
+    <div className="space-y-8 text-white">
+      <section className="relative overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-8 shadow-2xl">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(59,130,246,0.14),transparent_25%),radial-gradient(circle_at_bottom_left,rgba(16,185,129,0.08),transparent_20%)]" />
+        <div className="relative flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+          <div>
+            <div className="mb-3 inline-flex items-center rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium uppercase tracking-[0.2em] text-slate-400">
+              Daily Performance Input
+            </div>
+            <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
+              Daily Sheet
+            </h1>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400 sm:text-base">
+              Track lead volume, spend, and paid conversions by original sold date without inflating source quality.
+            </p>
           </div>
-        ) : null}
-      </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <Tile label="Total Spend" value={currency(dailyTotals.totalSpend)} />
-        <Tile label="Total Sales" value={String(dailyTotals.totalSales)} />
-        <Tile label="Total Premium" value={currency(dailyTotals.totalPremium)} />
-        <Tile label="Total Leads" value={String(dailyTotals.totalLeads)} />
-        <Tile
-          label="CAC"
-          value={currency(dailyTotals.cac)}
-          danger={dailyTotals.totalSales > 0 && dailyTotals.cac > 499.99}
-        />
-        <Tile label="Conversion" value={`${dailyTotals.conversion.toFixed(2)}%`} />
-        <Tile
-          label="P/S Ratio"
-          value={`${dailyTotals.ps.toFixed(2)}x`}
-          danger={dailyTotals.totalSpend > 0 && dailyTotals.ps < 0.74}
-        />
-        <Tile label="ACA Wrapped %" value={`${dailyTotals.acaWrappedPct.toFixed(2)}%`} />
-      </div>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+            <label className="block">
+              <div className="mb-2 text-xs uppercase tracking-[0.18em] text-slate-500">Date</div>
+              <input
+                type="date"
+                value={date}
+                onChange={(e) => handleDateChange(e.target.value)}
+                className="rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-sm text-white outline-none transition focus:border-slate-400"
+              />
+            </label>
 
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-slate-700 text-left">
-            <th className="py-2">Source</th>
-            <th>Type</th>
-            <th>Base CPL</th>
-            <th>CPL</th>
-            <th>Qty</th>
-            <th>Spend</th>
-            <th>Sales</th>
-            <th>CAC</th>
-            <th>Premium</th>
-            <th>P/S</th>
-            <th>Conversion</th>
-          </tr>
-        </thead>
-        <tbody>
-          {sources.map((source) => {
-            const metric = getMetricForSource(source.id);
-            const row = getRowForSource(source.id);
+            <button
+              onClick={() => setDealModalOpen(true)}
+              className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-500"
+            >
+              Enter Deal
+            </button>
+          </div>
+        </div>
+      </section>
 
-            const cplOverride = row?.cplOverrideInput === "" ? null : Number(row?.cplOverrideInput);
-            const quantity = Number(row?.quantityInput || 0);
-            const spendOverride =
-              row?.spendOverrideInput === "" ? null : Number(row?.spendOverrideInput);
+      {errorText ? (
+        <div className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+          {errorText}
+        </div>
+      ) : null}
 
-            const effectiveCpl = cplOverride ?? source.base_cpl;
-            const effectiveSpend = spendOverride ?? quantity * effectiveCpl;
+      <section className="rounded-3xl border border-white/10 bg-slate-950/80 p-6 shadow-xl">
+        <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2 className="text-2xl font-semibold tracking-tight">Daily Overview</h2>
+            <p className="mt-1 text-sm text-slate-400">
+              Numbers below reflect cleared payments only.
+            </p>
+          </div>
+          <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
+            {date}
+          </div>
+        </div>
 
-            const sourceDeals = getPaidDealsForSource(source.id);
-            const sales = sourceDeals.length;
-            const premium = sourceDeals.reduce(
-              (sum, d) => sum + Number(d.total_premium || 0),
-              0
-            );
-            const conversion = quantity > 0 ? (sales / quantity) * 100 : 0;
-            const cac = sales > 0 ? effectiveSpend / sales : 0;
-            const ps = effectiveSpend > 0 ? premium / effectiveSpend : 0;
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <KpiTile label="Spend" value={currency(dailyTotals.totalSpend)} />
+          <KpiTile label="Sales" value={String(dailyTotals.totalSales)} />
+          <KpiTile label="Premium" value={currency(dailyTotals.totalPremium)} />
+          <KpiTile label="Leads" value={String(dailyTotals.totalLeads)} />
+          <KpiTile
+            label="CAC"
+            value={currency(dailyTotals.cac)}
+            danger={dailyTotals.totalSales > 0 && dailyTotals.cac > 499.99}
+          />
+          <KpiTile label="Conversion" value={`${dailyTotals.conversion.toFixed(2)}%`} />
+          <KpiTile
+            label="P/S Ratio"
+            value={`${dailyTotals.ps.toFixed(2)}x`}
+            danger={dailyTotals.totalSpend > 0 && dailyTotals.ps < 0.74}
+            strong={dailyTotals.ps >= 1.5}
+          />
+          <KpiTile label="ACA Wrapped %" value={`${dailyTotals.acaWrappedPct.toFixed(2)}%`} />
+        </div>
+      </section>
 
-            const cacDanger = sales > 0 && cac > 499.99;
-            const psDanger = effectiveSpend > 0 && ps < 0.74;
+      <SourceGroupTable
+        title="Inbound Sources"
+        subtitle="Alphabetized within inbound lead sources."
+        sources={inboundSources}
+        getMetricForSource={getMetricForSource}
+        getRowForSource={getRowForSource}
+        getPaidDealsForSource={getPaidDealsForSource}
+        updateRowInput={updateRowInput}
+        saveField={saveField}
+      />
 
-            return (
-              <tr key={source.id} className="border-b border-slate-800">
-                <td className="py-2">{source.name}</td>
-                <td>{source.type}</td>
-                <td>{currency(Number(source.base_cpl))}</td>
-
-                <td>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={row?.cplOverrideInput ?? ""}
-                    placeholder={String(source.base_cpl)}
-                    onChange={(e) =>
-                      updateRowInput(source.id, "cplOverrideInput", e.target.value)
-                    }
-                    onBlur={() =>
-                      metric &&
-                      saveField(source.id, {
-                        cpl_override:
-                          row?.cplOverrideInput === "" ? null : Number(row?.cplOverrideInput),
-                      })
-                    }
-                    className="w-24 rounded bg-slate-800 p-1"
-                  />
-                </td>
-
-                <td>
-                  <input
-                    type="number"
-                    value={row?.quantityInput ?? "0"}
-                    onChange={(e) =>
-                      updateRowInput(source.id, "quantityInput", e.target.value)
-                    }
-                    onBlur={() =>
-                      metric &&
-                      saveField(source.id, {
-                        quantity: Number(row?.quantityInput || 0),
-                      })
-                    }
-                    className="w-20 rounded bg-slate-800 p-1"
-                  />
-                </td>
-
-                <td>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={
-                      row?.spendOverrideInput !== ""
-                        ? row?.spendOverrideInput
-                        : String(effectiveSpend)
-                    }
-                    onChange={(e) =>
-                      updateRowInput(source.id, "spendOverrideInput", e.target.value)
-                    }
-                    onBlur={() =>
-                      metric &&
-                      saveField(source.id, {
-                        spend_override:
-                          row?.spendOverrideInput === ""
-                            ? null
-                            : Number(row?.spendOverrideInput),
-                      })
-                    }
-                    className="w-24 rounded bg-slate-800 p-1"
-                  />
-                </td>
-
-                <td>{sales}</td>
-                <td className={cacDanger ? "font-semibold text-red-400" : ""}>
-                  {sales > 0 ? currency(cac) : "—"}
-                </td>
-                <td>{currency(premium)}</td>
-                <td className={psDanger ? "font-semibold text-red-400" : ""}>
-                  {effectiveSpend > 0 ? `${ps.toFixed(2)}x` : "—"}
-                </td>
-                <td>{conversion.toFixed(2)}%</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+      <SourceGroupTable
+        title="Data Sources"
+        subtitle="Alphabetized within data lead sources."
+        sources={dataSources}
+        getMetricForSource={getMetricForSource}
+        getRowForSource={getRowForSource}
+        getPaidDealsForSource={getPaidDealsForSource}
+        updateRowInput={updateRowInput}
+        saveField={saveField}
+      />
 
       {dealModalOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-          <div className="w-full max-w-lg rounded-xl bg-slate-950 p-6 text-white shadow-2xl">
-            <h2 className="mb-6 text-3xl font-bold">Enter Deal</h2>
-
-            <div className="space-y-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+          <div className="w-full max-w-2xl rounded-3xl border border-white/10 bg-slate-950 p-6 shadow-2xl">
+            <div className="mb-6 flex items-start justify-between gap-4">
               <div>
-                <label className="mb-1 block text-sm text-slate-300">Rep</label>
+                <div className="mb-2 inline-flex items-center rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium uppercase tracking-[0.2em] text-slate-400">
+                  New Deal Entry
+                </div>
+                <h2 className="text-3xl font-semibold tracking-tight">Enter Deal</h2>
+                <p className="mt-2 text-sm text-slate-400">
+                  Sold date stays tied to this day. Paid deals count only after payment clears.
+                </p>
+              </div>
+              <button
+                onClick={() => setDealModalOpen(false)}
+                className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-2 text-sm text-slate-300 transition hover:bg-white/[0.06]"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field label="Rep">
                 <select
                   value={dealForm.rep_id}
                   onChange={(e) =>
                     setDealForm((prev) => ({ ...prev, rep_id: e.target.value }))
                   }
-                  className="w-full rounded bg-slate-800 px-3 py-2"
+                  className="field-input"
                 >
                   <option value="">Select rep</option>
                   {reps.map((rep) => (
@@ -591,29 +553,27 @@ export default function DailySheetPage() {
                     </option>
                   ))}
                 </select>
-              </div>
+              </Field>
 
-              <div>
-                <label className="mb-1 block text-sm text-slate-300">Member ID</label>
+              <Field label="Member ID">
                 <input
                   type="text"
                   value={dealForm.member_id}
                   onChange={(e) =>
                     setDealForm((prev) => ({ ...prev, member_id: e.target.value }))
                   }
-                  className="w-full rounded bg-slate-800 px-3 py-2"
+                  className="field-input"
                   placeholder="Enter member ID"
                 />
-              </div>
+              </Field>
 
-              <div>
-                <label className="mb-1 block text-sm text-slate-300">Plan</label>
+              <Field label="Plan">
                 <select
                   value={dealForm.plan_id}
                   onChange={(e) =>
                     setDealForm((prev) => ({ ...prev, plan_id: e.target.value }))
                   }
-                  className="w-full rounded bg-slate-800 px-3 py-2"
+                  className="field-input"
                 >
                   <option value="">Select plan</option>
                   {plans.map((plan) => (
@@ -622,12 +582,26 @@ export default function DailySheetPage() {
                     </option>
                   ))}
                 </select>
-              </div>
+              </Field>
 
-              <div>
-                <label className="mb-1 block text-sm text-slate-300">
-                  Limited Premium
-                </label>
+              <Field label="Lead Source">
+                <select
+                  value={dealForm.source_id}
+                  onChange={(e) =>
+                    setDealForm((prev) => ({ ...prev, source_id: e.target.value }))
+                  }
+                  className="field-input"
+                >
+                  <option value="">Select lead source</option>
+                  {sources.map((source) => (
+                    <option key={source.id} value={source.id}>
+                      {source.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+
+              <Field label="Limited Premium">
                 <input
                   type="number"
                   step="0.01"
@@ -638,14 +612,11 @@ export default function DailySheetPage() {
                       limited_premium: e.target.value,
                     }))
                   }
-                  className="w-full rounded bg-slate-800 px-3 py-2"
+                  className="field-input"
                 />
-              </div>
+              </Field>
 
-              <div>
-                <label className="mb-1 block text-sm text-slate-300">
-                  Add-On Premiums
-                </label>
+              <Field label="Add-On Premiums">
                 <input
                   type="number"
                   step="0.01"
@@ -656,14 +627,11 @@ export default function DailySheetPage() {
                       addon_premium: e.target.value,
                     }))
                   }
-                  className="w-full rounded bg-slate-800 px-3 py-2"
+                  className="field-input"
                 />
-              </div>
+              </Field>
 
-              <div>
-                <label className="mb-1 block text-sm text-slate-300">
-                  Total Premium
-                </label>
+              <Field label="Total Premium">
                 <input
                   type="number"
                   value={
@@ -671,67 +639,54 @@ export default function DailySheetPage() {
                     Number(dealForm.addon_premium || 0)
                   }
                   readOnly
-                  className="w-full rounded bg-slate-900 px-3 py-2 text-slate-300"
+                  className="field-input field-input-readonly"
                 />
-              </div>
+              </Field>
 
-              <div className="flex items-center gap-2">
-                <input
-                  id="aca_sold"
-                  type="checkbox"
-                  checked={dealForm.aca_sold}
-                  onChange={(e) =>
-                    setDealForm((prev) => ({ ...prev, aca_sold: e.target.checked }))
-                  }
-                />
-                <label htmlFor="aca_sold" className="text-sm text-slate-300">
-                  ACA Sold?
-                </label>
-              </div>
+              <div className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-4">
+                <div className="mb-3 text-xs uppercase tracking-[0.18em] text-slate-500">
+                  Deal Flags
+                </div>
+                <div className="space-y-3">
+                  <label className="flex items-center gap-3 text-[15px] text-slate-200">
+                    <input
+                      id="aca_sold"
+                      type="checkbox"
+                      checked={dealForm.aca_sold}
+                      onChange={(e) =>
+                        setDealForm((prev) => ({ ...prev, aca_sold: e.target.checked }))
+                      }
+                      className="h-4 w-4 rounded border-white/20 bg-slate-900"
+                    />
+                    ACA Sold?
+                  </label>
 
-              <div className="flex items-center gap-2">
-                <input
-                  id="paid_today"
-                  type="checkbox"
-                  checked={dealForm.paid_today}
-                  onChange={(e) =>
-                    setDealForm((prev) => ({ ...prev, paid_today: e.target.checked }))
-                  }
-                />
-                <label htmlFor="paid_today" className="text-sm text-slate-300">
-                  Paid today?
-                </label>
-              </div>
-
-              <div>
-                <label className="mb-1 block text-sm text-slate-300">Lead Source</label>
-                <select
-                  value={dealForm.source_id}
-                  onChange={(e) =>
-                    setDealForm((prev) => ({ ...prev, source_id: e.target.value }))
-                  }
-                  className="w-full rounded bg-slate-800 px-3 py-2"
-                >
-                  <option value="">Select lead source</option>
-                  {sources.map((source) => (
-                    <option key={source.id} value={source.id}>
-                      {source.name}
-                    </option>
-                  ))}
-                </select>
+                  <label className="flex items-center gap-3 text-[15px] text-slate-200">
+                    <input
+                      id="paid_today"
+                      type="checkbox"
+                      checked={dealForm.paid_today}
+                      onChange={(e) =>
+                        setDealForm((prev) => ({ ...prev, paid_today: e.target.checked }))
+                      }
+                      className="h-4 w-4 rounded border-white/20 bg-slate-900"
+                    />
+                    Paid today?
+                  </label>
+                </div>
               </div>
             </div>
 
             <div className="mt-6 flex justify-end gap-3">
               <button
                 onClick={() => setDealModalOpen(false)}
-                className="rounded bg-slate-700 px-4 py-2 hover:bg-slate-600"
+                className="rounded-2xl border border-white/10 bg-white/[0.03] px-5 py-3 text-sm font-medium text-slate-300 transition hover:bg-white/[0.06]"
               >
                 Cancel
               </button>
               <button
                 onClick={saveDeal}
-                className="rounded bg-orange-600 px-4 py-2 hover:bg-orange-500"
+                className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-500"
               >
                 Save Deal
               </button>
@@ -739,25 +694,276 @@ export default function DailySheetPage() {
           </div>
         </div>
       ) : null}
+
+      <style jsx global>{`
+        .field-input {
+          width: 100%;
+          border-radius: 1rem;
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          background: rgb(15 23 42);
+          padding: 0.85rem 1rem;
+          font-size: 15px;
+          color: white;
+          outline: none;
+          transition: border-color 0.15s ease, background 0.15s ease;
+        }
+
+        .field-input:focus {
+          border-color: rgba(148, 163, 184, 0.9);
+        }
+
+        .field-input-readonly {
+          background: rgba(255, 255, 255, 0.03);
+          color: rgb(203 213 225);
+        }
+      `}</style>
     </div>
   );
 }
 
-function Tile({
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <div className="mb-2 text-xs uppercase tracking-[0.18em] text-slate-500">{label}</div>
+      {children}
+    </div>
+  );
+}
+
+function KpiTile({
   label,
   value,
   danger = false,
+  strong = false,
 }: {
   label: string;
   value: string;
   danger?: boolean;
+  strong?: boolean;
 }) {
   return (
-    <div className="rounded-xl bg-slate-950 p-4">
-      <div className="text-sm text-slate-400">{label}</div>
-      <div className={`mt-2 text-2xl font-bold ${danger ? "text-red-400" : ""}`}>
+    <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-5">
+      <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</div>
+      <div
+        className={`mt-3 text-2xl font-semibold tracking-tight ${
+          strong ? "text-emerald-400" : danger ? "text-red-400" : "text-white"
+        }`}
+      >
         {value}
       </div>
     </div>
+  );
+}
+
+function SourceGroupTable({
+  title,
+  subtitle,
+  sources,
+  getMetricForSource,
+  getRowForSource,
+  getPaidDealsForSource,
+  updateRowInput,
+  saveField,
+}: {
+  title: string;
+  subtitle: string;
+  sources: Source[];
+  getMetricForSource: (sourceId: string) => Metric | undefined;
+  getRowForSource: (sourceId: string) => RowState | undefined;
+  getPaidDealsForSource: (sourceId: string) => Deal[];
+  updateRowInput: (sourceId: string, field: keyof RowState, value: string) => void;
+  saveField: (sourceId: string, updates: Partial<Metric>) => Promise<void>;
+}) {
+  return (
+    <section className="rounded-3xl border border-white/10 bg-slate-950/80 p-6 shadow-xl">
+      <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h2 className="text-2xl font-semibold tracking-tight">{title}</h2>
+          <p className="mt-1 text-sm text-slate-400">{subtitle}</p>
+        </div>
+        <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
+          Cleared payments only
+        </div>
+      </div>
+
+      <div className="overflow-hidden rounded-2xl border border-white/10 bg-slate-900/40">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[1120px] text-[16px]">
+            <thead>
+              <tr className="border-b border-white/10 bg-white/[0.03] text-left text-sm uppercase tracking-[0.18em] text-slate-400">
+                <th className="px-4 py-4 font-medium">Source</th>
+                <th className="px-4 py-4 font-medium">Type</th>
+                <th className="px-4 py-4 font-medium">Base CPL</th>
+                <th className="px-4 py-4 font-medium">CPL</th>
+                <th className="px-4 py-4 font-medium">Qty</th>
+                <th className="px-4 py-4 font-medium">Spend</th>
+                <th className="px-4 py-4 font-medium">Sales</th>
+                <th className="px-4 py-4 font-medium">CAC</th>
+                <th className="px-4 py-4 font-medium">Premium</th>
+                <th className="px-4 py-4 font-medium">P/S</th>
+                <th className="px-4 py-4 font-medium">Conversion</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sources.map((source, index) => {
+                const metric = getMetricForSource(source.id);
+                const row = getRowForSource(source.id);
+
+                const cplOverride =
+                  row?.cplOverrideInput === "" ? null : Number(row?.cplOverrideInput);
+                const quantity = Number(row?.quantityInput || 0);
+                const spendOverride =
+                  row?.spendOverrideInput === "" ? null : Number(row?.spendOverrideInput);
+
+                const effectiveCpl = cplOverride ?? source.base_cpl;
+                const effectiveSpend = spendOverride ?? quantity * effectiveCpl;
+
+                const sourceDeals = getPaidDealsForSource(source.id);
+                const sales = sourceDeals.length;
+                const premium = sourceDeals.reduce(
+                  (sum, d) => sum + Number(d.total_premium || 0),
+                  0
+                );
+                const conversion = quantity > 0 ? (sales / quantity) * 100 : 0;
+                const cac = sales > 0 ? effectiveSpend / sales : 0;
+                const ps = effectiveSpend > 0 ? premium / effectiveSpend : 0;
+
+                const cacDanger = sales > 0 && cac > 499.99;
+                const psDanger = effectiveSpend > 0 && ps < 0.74;
+                const psStrong = ps >= 1.5;
+
+                return (
+                  <tr
+                    key={source.id}
+                    className="border-b border-white/5 transition-colors hover:bg-white/[0.03]"
+                  >
+                    <td className="px-4 py-5">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] text-sm font-semibold text-slate-300">
+                          {index + 1}
+                        </div>
+                        <div>
+                          <div className="font-semibold text-[16px] text-white">
+                            {source.name}
+                          </div>
+                          <div className="text-xs text-slate-500 capitalize">
+                            {source.type}
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-5 text-[15px] text-slate-100 capitalize">
+                      {source.type}
+                    </td>
+                    <td className="px-4 py-5 text-[15px] text-slate-100">
+                      {currency(Number(source.base_cpl))}
+                    </td>
+
+                    <td className="px-4 py-5">
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={row?.cplOverrideInput ?? ""}
+                        placeholder={String(source.base_cpl)}
+                        onChange={(e) =>
+                          updateRowInput(source.id, "cplOverrideInput", e.target.value)
+                        }
+                        onBlur={() =>
+                          metric &&
+                          saveField(source.id, {
+                            cpl_override:
+                              row?.cplOverrideInput === ""
+                                ? null
+                                : Number(row?.cplOverrideInput),
+                          })
+                        }
+                        className="w-28 rounded-2xl border border-white/10 bg-slate-900 px-3 py-2 text-[15px] text-white outline-none transition focus:border-slate-400"
+                      />
+                    </td>
+
+                    <td className="px-4 py-5">
+                      <input
+                        type="number"
+                        value={row?.quantityInput ?? "0"}
+                        onChange={(e) =>
+                          updateRowInput(source.id, "quantityInput", e.target.value)
+                        }
+                        onBlur={() =>
+                          metric &&
+                          saveField(source.id, {
+                            quantity: Number(row?.quantityInput || 0),
+                          })
+                        }
+                        className="w-24 rounded-2xl border border-white/10 bg-slate-900 px-3 py-2 text-[15px] text-white outline-none transition focus:border-slate-400"
+                      />
+                    </td>
+
+                    <td className="px-4 py-5">
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={
+                          row?.spendOverrideInput !== ""
+                            ? row?.spendOverrideInput
+                            : String(effectiveSpend)
+                        }
+                        onChange={(e) =>
+                          updateRowInput(source.id, "spendOverrideInput", e.target.value)
+                        }
+                        onBlur={() =>
+                          metric &&
+                          saveField(source.id, {
+                            spend_override:
+                              row?.spendOverrideInput === ""
+                                ? null
+                                : Number(row?.spendOverrideInput),
+                          })
+                        }
+                        className="w-28 rounded-2xl border border-white/10 bg-slate-900 px-3 py-2 text-[15px] text-white outline-none transition focus:border-slate-400"
+                      />
+                    </td>
+
+                    <td className="px-4 py-5 text-[15px] text-slate-100">{sales}</td>
+                    <td
+                      className={`px-4 py-5 text-[15px] font-medium ${
+                        cacDanger ? "text-red-400" : "text-slate-100"
+                      }`}
+                    >
+                      {sales > 0 ? currency(cac) : "—"}
+                    </td>
+                    <td className="px-4 py-5 text-[15px] font-medium text-white">
+                      {currency(premium)}
+                    </td>
+                    <td
+                      className={`px-4 py-5 text-[15px] font-semibold ${
+                        psStrong ? "text-emerald-400" : psDanger ? "text-red-400" : "text-white"
+                      }`}
+                    >
+                      {effectiveSpend > 0 ? `${ps.toFixed(2)}x` : "—"}
+                    </td>
+                    <td className="px-4 py-5 text-[15px] text-slate-100">
+                      {conversion.toFixed(2)}%
+                    </td>
+                  </tr>
+                );
+              })}
+              {sources.length === 0 ? (
+                <tr>
+                  <td colSpan={11} className="px-4 py-10 text-center text-slate-500">
+                    No sources found in this category.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
   );
 }

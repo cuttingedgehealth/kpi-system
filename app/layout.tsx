@@ -25,7 +25,7 @@ export default function RootLayout({
   const [password, setPassword] = useState("");
   const [ready, setReady] = useState(false);
 
-  const correctPassword = "YOUR_PASSWORD_HERE";
+  const correctPassword = "CuttingEdge123!";
 
   useEffect(() => {
     const saved = window.localStorage.getItem(STORAGE_KEY);
