@@ -578,11 +578,8 @@ export default function PayrollPage() {
                 />
               </FieldCard>
 
-              <FieldCard label="Bonus">
+              <FieldCard label={`Bonus (Auto: ${currency(row.autoBonus)})`}>
                 <div className="space-y-2">
-                  <div className="text-sm text-slate-500">
-                    Auto Bonus: <span className="font-medium text-slate-300">{currency(row.autoBonus)}</span>
-                  </div>
                   <input
                     type="number"
                     step="0.01"
