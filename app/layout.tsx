@@ -1,11 +1,49 @@
+"use client";
+
 import "./globals.css";
 import Link from "next/link";
+import { useState } from "react";
 
 export default function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const [authenticated, setAuthenticated] = useState(false);
+  const [password, setPassword] = useState("");
+
+  const correctPassword = "CuttingEdge123!"; 
+
+  if (!authenticated) {
+    return (
+      <html lang="en">
+        <body className="bg-slate-900 text-white flex items-center justify-center h-screen">
+          <div className="bg-slate-800 p-6 rounded-xl w-80 text-center">
+            <h1 className="text-xl mb-4">Enter Password</h1>
+            <input
+              type="password"
+              className="w-full p-2 rounded bg-slate-700 mb-3"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+            <button
+              className="w-full bg-blue-600 py-2 rounded"
+              onClick={() => {
+                if (password === correctPassword) {
+                  setAuthenticated(true);
+                } else {
+                  alert("Wrong password");
+                }
+              }}
+            >
+              Enter
+            </button>
+          </div>
+        </body>
+      </html>
+    );
+  }
+
   return (
     <html lang="en">
       <body className="bg-slate-900 text-white">
