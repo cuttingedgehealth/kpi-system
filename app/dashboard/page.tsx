@@ -386,19 +386,19 @@ export default function DashboardPage() {
 
         <div className="overflow-hidden rounded-2xl border border-white/10 bg-slate-900/40">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[980px] text-[15px]">
+            <table className="w-full min-w-[980px] text-[16px]">
               <thead>
                 <tr className="border-b border-white/10 bg-white/[0.03] text-left text-sm uppercase tracking-[0.18em] text-slate-400">
-                  <th className="px-4 py-4 font-medium">Source</th>
-                  <th className="px-4 py-4 font-medium">Type</th>
-                  <th className="px-4 py-4 text-right font-medium">Leads</th>
-                  <th className="px-4 py-4 text-right font-medium">Spend</th>
-                  <th className="px-4 py-4 text-right font-medium">Sales</th>
-                  <th className="px-4 py-4 text-right font-medium">CAC</th>
-                  <th className="px-4 py-4 text-right font-medium">Premium</th>
-                  <th className="px-4 py-4 text-right font-medium">P/S</th>
-                  <th className="px-4 py-4 text-right font-medium">Conversion</th>
-                  <th className="px-4 py-4 text-right font-medium">ACA %</th>
+                  <th className="px-4 py-5 font-medium">Source</th>
+                  <th className="px-4 py-5 font-medium">Type</th>
+                  <th className="px-4 py-5 text-right font-medium">Leads</th>
+                  <th className="px-4 py-5 text-right font-medium">Spend</th>
+                  <th className="px-4 py-5 text-right font-medium">Sales</th>
+                  <th className="px-4 py-5 text-right font-medium">CAC</th>
+                  <th className="px-4 py-5 text-right font-medium">Premium</th>
+                  <th className="px-4 py-5 text-right font-medium">P/S</th>
+                  <th className="px-4 py-5 text-right font-medium">Conversion</th>
+                  <th className="px-4 py-5 text-right font-medium">ACA %</th>
                 </tr>
               </thead>
               <tbody>
@@ -412,40 +412,40 @@ export default function DashboardPage() {
                       key={row.source.id}
                       className="border-b border-white/5 transition-colors hover:bg-white/[0.03]"
                     >
-                      <td className="px-4 py-4">
+                      <td className="px-4 py-5">
                         <div className="flex items-center gap-3">
-                          <div className="flex h-8 w-8 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] text-xs font-semibold text-slate-300">
+                          <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] text-xs font-semibold text-slate-300">
                             {index + 1}
                           </div>
                           <div>
-                            <div className="font-medium text-white">{row.source.name}</div>
+                            <div className="font-semibold text-[16px] text-white">{row.source.name}</div>
                             <div className="text-xs text-slate-500">
                               {row.source.type === "inbound" ? "Inbound" : "Data"}
                             </div>
                           </div>
                         </div>
                       </td>
-                      <td className="px-4 py-4 text-slate-300 capitalize">{row.source.type}</td>
-                      <td className="px-4 py-4 text-right text-slate-200">{row.leads}</td>
-                      <td className="px-4 py-4 text-right text-slate-200">{currency(row.spend)}</td>
-                      <td className="px-4 py-4 text-right text-slate-200">{row.sales}</td>
-                      <td className={`px-4 py-4 text-right font-medium ${cacBad ? "text-red-400" : "text-slate-200"}`}>
+                      <td className="px-4 py-5 text-slate-300 capitalize">{row.source.type}</td>
+                      <td className="px-4 py-5 text-right text-[15px] text-slate-100">{row.leads}</td>
+                      <td className="px-4 py-5 text-right text-[15px] text-slate-100">{currency(row.spend)}</td>
+                      <td className="px-4 py-5 text-right text-[15px] text-slate-100">{row.sales}</td>
+                      <td className={`px-4 py-5 text-right font-medium ${cacBad ? "text-red-400" : "text-slate-200"}`}>
                         {row.sales > 0 ? currency(row.cac) : "—"}
                       </td>
-                      <td className="px-4 py-4 text-right font-medium text-slate-100">
+                      <td className="px-4 py-5 text-right font-medium text-slate-100">
                         {currency(row.premium)}
                       </td>
                       <td
-                        className={`px-4 py-4 text-right font-semibold ${
+                        className={`px-4 py-5 text-right font-semibold ${
                           psStrong ? "text-emerald-400" : psBad ? "text-red-400" : "text-slate-100"
                         }`}
                       >
                         {row.spend > 0 ? `${row.ps.toFixed(2)}x` : "—"}
                       </td>
-                      <td className="px-4 py-4 text-right text-slate-200">
+                      <td className="px-4 py-5 text-right text-[15px] text-slate-100">
                         {percent(row.conversion)}
                       </td>
-                      <td className="px-4 py-4 text-right text-slate-200">
+                      <td className="px-4 py-5 text-right text-[15px] text-slate-100">
                         {percent(row.acaWrappedPct)}
                       </td>
                     </tr>
@@ -611,7 +611,7 @@ function SubMetric({
       : "text-white";
 
   return (
-    <div className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-4">
+    <div className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-5">
       <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</div>
       <div className={`mt-2 text-lg font-semibold ${accentClass}`}>{value}</div>
     </div>
