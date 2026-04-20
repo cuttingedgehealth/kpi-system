@@ -45,6 +45,10 @@ export default function SourcesPage() {
   const [openPlanMenuId, setOpenPlanMenuId] = useState<string | null>(null);
   const [openRepMenuId, setOpenRepMenuId] = useState<string | null>(null);
 
+  const [sourcesExpanded, setSourcesExpanded] = useState(false);
+  const [plansExpanded, setPlansExpanded] = useState(false);
+  const [repsExpanded, setRepsExpanded] = useState(false);
+
   async function loadData() {
     setLoading(true);
     setErrorText("");
@@ -243,16 +247,11 @@ export default function SourcesPage() {
         </div>
       ) : null}
 
-      <section className="rounded-3xl border border-white/10 bg-slate-950/80 p-6 shadow-xl">
-        <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <h2 className="text-2xl font-semibold tracking-tight">Sources</h2>
-            <p className="mt-1 text-sm text-slate-400">
-              Add and maintain inbound and data lead sources.
-            </p>
-          </div>
-        </div>
-
+      <CollapsibleSection
+        title="Sources"
+        expanded={sourcesExpanded}
+        onToggle={() => setSourcesExpanded((prev) => !prev)}
+      >
         <div className="mb-6 grid gap-3 lg:grid-cols-[1.5fr_1fr_1fr_auto]">
           <input
             value={newSourceName}
@@ -385,18 +384,29 @@ export default function SourcesPage() {
             </table>
           </div>
         </div>
-      </section>
+      </CollapsibleSection>
 
-      <section className="grid gap-6 xl:grid-cols-2">
-        <SettingsListCard
-          title="Plans"
-          subtitle="Manage plan names used in deal entry."
-          inputValue={newPlan}
-          setInputValue={setNewPlan}
-          inputPlaceholder="Add a new plan"
-          buttonLabel="Add Plan"
-          onAdd={addPlan}
-        >
+      <CollapsibleSection
+        title="Plans"
+        expanded={plansExpanded}
+        onToggle={() => setPlansExpanded((prev) => !prev)}
+      >
+        <div className="mb-5 flex gap-3">
+          <input
+            value={newPlan}
+            onChange={(e) => setNewPlan(e.target.value)}
+            placeholder="Add a new plan"
+            className="field-input"
+          />
+          <button
+            onClick={addPlan}
+            className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-500"
+          >
+            Add Plan
+          </button>
+        </div>
+
+        <div className="space-y-3">
           {plans.map((plan, index) => (
             <ListRow
               key={plan.id}
@@ -411,20 +421,31 @@ export default function SourcesPage() {
               onDelete={() => deletePlan(plan.id, plan.name)}
             />
           ))}
-          {plans.length === 0 ? (
-            <EmptyListState text="No plans added yet." />
-          ) : null}
-        </SettingsListCard>
+          {plans.length === 0 ? <EmptyListState text="No plans added yet." /> : null}
+        </div>
+      </CollapsibleSection>
 
-        <SettingsListCard
-          title="Reps"
-          subtitle="Manage the reps available in deal entry and payroll."
-          inputValue={newRep}
-          setInputValue={setNewRep}
-          inputPlaceholder="Add a rep"
-          buttonLabel="Add Rep"
-          onAdd={addRep}
-        >
+      <CollapsibleSection
+        title="Reps"
+        expanded={repsExpanded}
+        onToggle={() => setRepsExpanded((prev) => !prev)}
+      >
+        <div className="mb-5 flex gap-3">
+          <input
+            value={newRep}
+            onChange={(e) => setNewRep(e.target.value)}
+            placeholder="Add a rep"
+            className="field-input"
+          />
+          <button
+            onClick={addRep}
+            className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-500"
+          >
+            Add Rep
+          </button>
+        </div>
+
+        <div className="space-y-3">
           {reps.map((rep, index) => (
             <ListRow
               key={rep.id}
@@ -440,8 +461,8 @@ export default function SourcesPage() {
             />
           ))}
           {reps.length === 0 ? <EmptyListState text="No reps added yet." /> : null}
-        </SettingsListCard>
-      </section>
+        </div>
+      </CollapsibleSection>
 
       <style jsx global>{`
         .field-input {
@@ -464,6 +485,34 @@ export default function SourcesPage() {
   );
 }
 
+function CollapsibleSection({
+  title,
+  expanded,
+  onToggle,
+  children,
+}: {
+  title: string;
+  expanded: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="rounded-3xl border border-white/10 bg-slate-950/80 p-6 shadow-xl">
+      <div className="flex items-center justify-between">
+        <h2 className="text-2xl font-semibold tracking-tight">{title}</h2>
+        <button
+          onClick={onToggle}
+          className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-2 text-sm text-slate-300 transition hover:bg-white/[0.06]"
+        >
+          {expanded ? "Collapse" : "Expand"}
+        </button>
+      </div>
+
+      {expanded ? <div className="mt-6">{children}</div> : null}
+    </section>
+  );
+}
+
 function StatusBadge({ active }: { active: boolean }) {
   return (
     <span
@@ -475,52 +524,6 @@ function StatusBadge({ active }: { active: boolean }) {
     >
       {active ? "Active" : "Inactive"}
     </span>
-  );
-}
-
-function SettingsListCard({
-  title,
-  subtitle,
-  inputValue,
-  setInputValue,
-  inputPlaceholder,
-  buttonLabel,
-  onAdd,
-  children,
-}: {
-  title: string;
-  subtitle: string;
-  inputValue: string;
-  setInputValue: (value: string) => void;
-  inputPlaceholder: string;
-  buttonLabel: string;
-  onAdd: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="rounded-3xl border border-white/10 bg-slate-950/80 p-6 shadow-xl">
-      <div className="mb-6">
-        <h2 className="text-2xl font-semibold tracking-tight">{title}</h2>
-        <p className="mt-1 text-sm text-slate-400">{subtitle}</p>
-      </div>
-
-      <div className="mb-5 flex gap-3">
-        <input
-          value={inputValue}
-          onChange={(e) => setInputValue(e.target.value)}
-          placeholder={inputPlaceholder}
-          className="field-input"
-        />
-        <button
-          onClick={onAdd}
-          className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-500"
-        >
-          {buttonLabel}
-        </button>
-      </div>
-
-      <div className="space-y-3">{children}</div>
-    </section>
   );
 }
 
