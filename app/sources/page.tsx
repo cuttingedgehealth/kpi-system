@@ -222,32 +222,49 @@ export default function SourcesPage() {
 
   return (
     <div className="space-y-8 text-white">
-      <div>
-        <h1 className="text-2xl font-semibold">Settings</h1>
-        <p className="mt-1 text-slate-400">Manage sources, plan names, and reps.</p>
-      </div>
+      <section className="relative overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-8 shadow-2xl">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(59,130,246,0.14),transparent_25%),radial-gradient(circle_at_bottom_left,rgba(16,185,129,0.08),transparent_20%)]" />
+        <div className="relative">
+          <div className="mb-3 inline-flex items-center rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium uppercase tracking-[0.2em] text-slate-400">
+            System Configuration
+          </div>
+          <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
+            Settings
+          </h1>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400 sm:text-base">
+            Manage lead sources, plan names, and reps that feed the rest of the system.
+          </p>
+        </div>
+      </section>
 
       {errorText ? (
-        <div className="rounded bg-red-900/40 px-4 py-3 text-sm text-red-300">
+        <div className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
           {errorText}
         </div>
       ) : null}
 
-      <section className="rounded-xl bg-slate-950 p-6">
-        <h2 className="mb-4 text-xl font-semibold">Sources</h2>
+      <section className="rounded-3xl border border-white/10 bg-slate-950/80 p-6 shadow-xl">
+        <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2 className="text-2xl font-semibold tracking-tight">Sources</h2>
+            <p className="mt-1 text-sm text-slate-400">
+              Add and maintain inbound and data lead sources.
+            </p>
+          </div>
+        </div>
 
-        <div className="mb-6 grid gap-3 md:grid-cols-[1.5fr_1fr_1fr_auto]">
+        <div className="mb-6 grid gap-3 lg:grid-cols-[1.5fr_1fr_1fr_auto]">
           <input
             value={newSourceName}
             onChange={(e) => setNewSourceName(e.target.value)}
             placeholder="Add a new source"
-            className="rounded bg-slate-800 px-3 py-2"
+            className="field-input"
           />
 
           <select
             value={newSourceType}
             onChange={(e) => setNewSourceType(e.target.value as "inbound" | "data")}
-            className="rounded bg-slate-800 px-3 py-2"
+            className="field-input"
           >
             <option value="inbound">Inbound</option>
             <option value="data">Data</option>
@@ -259,208 +276,318 @@ export default function SourcesPage() {
             value={newSourceCpl}
             onChange={(e) => setNewSourceCpl(e.target.value)}
             placeholder="Base CPL"
-            className="rounded bg-slate-800 px-3 py-2"
+            className="field-input"
           />
 
           <button
             onClick={addSource}
-            className="rounded bg-blue-600 px-4 py-2 hover:bg-blue-500"
+            className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-500"
           >
             Add Source
           </button>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-800 text-left">
-                <th className="py-2">Name</th>
-                <th>Type</th>
-                <th>Base CPL</th>
-                <th>Status</th>
-                <th className="text-right">Options</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sources.map((source) => (
-                <tr key={source.id} className="border-b border-slate-900">
-                  <td className="py-2">{source.name}</td>
-                  <td>{source.type}</td>
-                  <td>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={source.base_cpl}
-                      onChange={(e) =>
-                        updateSource(source.id, {
-                          base_cpl: Number(e.target.value || 0),
-                        })
-                      }
-                      className="w-24 rounded bg-slate-800 px-2 py-1"
-                    />
-                  </td>
-                  <td>{source.active ? "Active" : "Inactive"}</td>
-                  <td className="text-right">
-                    <div className="relative inline-block">
-                      <button
-                        onClick={() =>
-                          setOpenSourceMenuId((prev) => (prev === source.id ? null : source.id))
-                        }
-                        className="rounded bg-slate-800 px-3 py-1 hover:bg-slate-700"
-                      >
-                        ☰
-                      </button>
-
-                      {openSourceMenuId === source.id ? (
-                        <div className="absolute right-0 z-10 mt-2 w-40 rounded border border-slate-700 bg-slate-900 p-1 text-left shadow-xl">
-                          <button
-                            onClick={() => updateSource(source.id, { active: !source.active })}
-                            className="block w-full rounded px-3 py-2 text-left hover:bg-slate-800"
-                          >
-                            {source.active ? "Make Inactive" : "Make Active"}
-                          </button>
-                          <button
-                            onClick={() => deleteSource(source.id, source.name)}
-                            className="block w-full rounded px-3 py-2 text-left text-red-400 hover:bg-slate-800"
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      ) : null}
-                    </div>
-                  </td>
+        <div className="overflow-hidden rounded-2xl border border-white/10 bg-slate-900/40">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[820px] text-[16px]">
+              <thead>
+                <tr className="border-b border-white/10 bg-white/[0.03] text-left text-sm uppercase tracking-[0.18em] text-slate-400">
+                  <th className="px-4 py-4 font-medium">Source</th>
+                  <th className="px-4 py-4 font-medium">Type</th>
+                  <th className="px-4 py-4 font-medium">Base CPL</th>
+                  <th className="px-4 py-4 font-medium">Status</th>
+                  <th className="px-4 py-4 text-right font-medium">Options</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {sources.map((source, index) => (
+                  <tr
+                    key={source.id}
+                    className="border-b border-white/5 transition-colors hover:bg-white/[0.03]"
+                  >
+                    <td className="px-4 py-5">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] text-sm font-semibold text-slate-300">
+                          {index + 1}
+                        </div>
+                        <div>
+                          <div className="font-semibold text-[16px] text-white">
+                            {source.name}
+                          </div>
+                          <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                            Source
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-5 text-[15px] capitalize text-slate-100">
+                      {source.type}
+                    </td>
+                    <td className="px-4 py-5">
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={source.base_cpl}
+                        onChange={(e) =>
+                          updateSource(source.id, {
+                            base_cpl: Number(e.target.value || 0),
+                          })
+                        }
+                        className="w-28 rounded-2xl border border-white/10 bg-slate-900 px-3 py-2 text-[15px] text-white outline-none transition focus:border-slate-400"
+                      />
+                    </td>
+                    <td className="px-4 py-5">
+                      <StatusBadge active={source.active} />
+                    </td>
+                    <td className="px-4 py-5 text-right">
+                      <div className="relative inline-block">
+                        <button
+                          onClick={() =>
+                            setOpenSourceMenuId((prev) =>
+                              prev === source.id ? null : source.id
+                            )
+                          }
+                          className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-2 text-sm text-slate-300 transition hover:bg-white/[0.06]"
+                        >
+                          Manage
+                        </button>
+
+                        {openSourceMenuId === source.id ? (
+                          <div className="absolute right-0 z-10 mt-2 w-44 rounded-2xl border border-white/10 bg-slate-950 p-2 shadow-2xl">
+                            <button
+                              onClick={() =>
+                                updateSource(source.id, { active: !source.active })
+                              }
+                              className="block w-full rounded-xl px-3 py-2 text-left text-sm text-slate-200 transition hover:bg-white/[0.05]"
+                            >
+                              {source.active ? "Make Inactive" : "Make Active"}
+                            </button>
+                            <button
+                              onClick={() => deleteSource(source.id, source.name)}
+                              className="block w-full rounded-xl px-3 py-2 text-left text-sm text-red-400 transition hover:bg-white/[0.05]"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {sources.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-10 text-center text-slate-500">
+                      No sources added yet.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
         </div>
       </section>
 
-      <section className="rounded-xl bg-slate-950 p-6">
-        <h2 className="mb-4 text-xl font-semibold">Plans</h2>
-
-        <div className="mb-4 flex gap-2">
-          <input
-            value={newPlan}
-            onChange={(e) => setNewPlan(e.target.value)}
-            placeholder="Add a new plan"
-            className="w-full rounded bg-slate-800 px-3 py-2"
-          />
-          <button
-            onClick={addPlan}
-            className="rounded bg-blue-600 px-4 py-2 hover:bg-blue-500"
-          >
-            Add Plan
-          </button>
-        </div>
-
-        <div className="space-y-2">
-          {plans.map((plan) => (
-            <div
+      <section className="grid gap-6 xl:grid-cols-2">
+        <SettingsListCard
+          title="Plans"
+          subtitle="Manage plan names used in deal entry."
+          inputValue={newPlan}
+          setInputValue={setNewPlan}
+          inputPlaceholder="Add a new plan"
+          buttonLabel="Add Plan"
+          onAdd={addPlan}
+        >
+          {plans.map((plan, index) => (
+            <ListRow
               key={plan.id}
-              className="flex items-center justify-between rounded bg-slate-900 px-3 py-2"
-            >
-              <div>
-                <span>{plan.name}</span>
-                <span className="ml-3 text-sm text-slate-400">
-                  {plan.active ? "Active" : "Inactive"}
-                </span>
-              </div>
-
-              <div className="relative">
-                <button
-                  onClick={() =>
-                    setOpenPlanMenuId((prev) => (prev === plan.id ? null : plan.id))
-                  }
-                  className="rounded bg-slate-800 px-3 py-1 hover:bg-slate-700"
-                >
-                  ☰
-                </button>
-
-                {openPlanMenuId === plan.id ? (
-                  <div className="absolute right-0 z-10 mt-2 w-40 rounded border border-slate-700 bg-slate-900 p-1 shadow-xl">
-                    <button
-                      onClick={() => updatePlan(plan.id, { active: !plan.active })}
-                      className="block w-full rounded px-3 py-2 text-left hover:bg-slate-800"
-                    >
-                      {plan.active ? "Make Inactive" : "Make Active"}
-                    </button>
-                    <button
-                      onClick={() => deletePlan(plan.id, plan.name)}
-                      className="block w-full rounded px-3 py-2 text-left text-red-400 hover:bg-slate-800"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-            </div>
+              index={index + 1}
+              name={plan.name}
+              active={plan.active}
+              menuOpen={openPlanMenuId === plan.id}
+              onToggleMenu={() =>
+                setOpenPlanMenuId((prev) => (prev === plan.id ? null : plan.id))
+              }
+              onToggleActive={() => updatePlan(plan.id, { active: !plan.active })}
+              onDelete={() => deletePlan(plan.id, plan.name)}
+            />
           ))}
-        </div>
-      </section>
+          {plans.length === 0 ? (
+            <EmptyListState text="No plans added yet." />
+          ) : null}
+        </SettingsListCard>
 
-      <section className="rounded-xl bg-slate-950 p-6">
-        <h2 className="mb-4 text-xl font-semibold">Reps</h2>
-
-        <div className="mb-4 flex gap-2">
-          <input
-            value={newRep}
-            onChange={(e) => setNewRep(e.target.value)}
-            placeholder="Add a rep"
-            className="w-full rounded bg-slate-800 px-3 py-2"
-          />
-          <button
-            onClick={addRep}
-            className="rounded bg-blue-600 px-4 py-2 hover:bg-blue-500"
-          >
-            Add Rep
-          </button>
-        </div>
-
-        <div className="space-y-2">
-          {reps.map((rep) => (
-            <div
+        <SettingsListCard
+          title="Reps"
+          subtitle="Manage the reps available in deal entry and payroll."
+          inputValue={newRep}
+          setInputValue={setNewRep}
+          inputPlaceholder="Add a rep"
+          buttonLabel="Add Rep"
+          onAdd={addRep}
+        >
+          {reps.map((rep, index) => (
+            <ListRow
               key={rep.id}
-              className="flex items-center justify-between rounded bg-slate-900 px-3 py-2"
-            >
-              <div>
-                <span>{rep.name}</span>
-                <span className="ml-3 text-sm text-slate-400">
-                  {rep.active ? "Active" : "Inactive"}
-                </span>
-              </div>
-
-              <div className="relative">
-                <button
-                  onClick={() =>
-                    setOpenRepMenuId((prev) => (prev === rep.id ? null : rep.id))
-                  }
-                  className="rounded bg-slate-800 px-3 py-1 hover:bg-slate-700"
-                >
-                  ☰
-                </button>
-
-                {openRepMenuId === rep.id ? (
-                  <div className="absolute right-0 z-10 mt-2 w-40 rounded border border-slate-700 bg-slate-900 p-1 shadow-xl">
-                    <button
-                      onClick={() => updateRep(rep.id, { active: !rep.active })}
-                      className="block w-full rounded px-3 py-2 text-left hover:bg-slate-800"
-                    >
-                      {rep.active ? "Make Inactive" : "Make Active"}
-                    </button>
-                    <button
-                      onClick={() => deleteRep(rep.id, rep.name)}
-                      className="block w-full rounded px-3 py-2 text-left text-red-400 hover:bg-slate-800"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-            </div>
+              index={index + 1}
+              name={rep.name}
+              active={rep.active}
+              menuOpen={openRepMenuId === rep.id}
+              onToggleMenu={() =>
+                setOpenRepMenuId((prev) => (prev === rep.id ? null : rep.id))
+              }
+              onToggleActive={() => updateRep(rep.id, { active: !rep.active })}
+              onDelete={() => deleteRep(rep.id, rep.name)}
+            />
           ))}
-        </div>
+          {reps.length === 0 ? <EmptyListState text="No reps added yet." /> : null}
+        </SettingsListCard>
       </section>
+
+      <style jsx global>{`
+        .field-input {
+          width: 100%;
+          border-radius: 1rem;
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          background: rgb(15 23 42);
+          padding: 0.85rem 1rem;
+          font-size: 15px;
+          color: white;
+          outline: none;
+          transition: border-color 0.15s ease, background 0.15s ease;
+        }
+
+        .field-input:focus {
+          border-color: rgba(148, 163, 184, 0.9);
+        }
+      `}</style>
+    </div>
+  );
+}
+
+function StatusBadge({ active }: { active: boolean }) {
+  return (
+    <span
+      className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium uppercase tracking-[0.18em] ${
+        active
+          ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
+          : "border-white/10 bg-white/[0.03] text-slate-400"
+      }`}
+    >
+      {active ? "Active" : "Inactive"}
+    </span>
+  );
+}
+
+function SettingsListCard({
+  title,
+  subtitle,
+  inputValue,
+  setInputValue,
+  inputPlaceholder,
+  buttonLabel,
+  onAdd,
+  children,
+}: {
+  title: string;
+  subtitle: string;
+  inputValue: string;
+  setInputValue: (value: string) => void;
+  inputPlaceholder: string;
+  buttonLabel: string;
+  onAdd: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="rounded-3xl border border-white/10 bg-slate-950/80 p-6 shadow-xl">
+      <div className="mb-6">
+        <h2 className="text-2xl font-semibold tracking-tight">{title}</h2>
+        <p className="mt-1 text-sm text-slate-400">{subtitle}</p>
+      </div>
+
+      <div className="mb-5 flex gap-3">
+        <input
+          value={inputValue}
+          onChange={(e) => setInputValue(e.target.value)}
+          placeholder={inputPlaceholder}
+          className="field-input"
+        />
+        <button
+          onClick={onAdd}
+          className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-500"
+        >
+          {buttonLabel}
+        </button>
+      </div>
+
+      <div className="space-y-3">{children}</div>
+    </section>
+  );
+}
+
+function ListRow({
+  index,
+  name,
+  active,
+  menuOpen,
+  onToggleMenu,
+  onToggleActive,
+  onDelete,
+}: {
+  index: number;
+  name: string;
+  active: boolean;
+  menuOpen: boolean;
+  onToggleMenu: () => void;
+  onToggleActive: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <div className="flex items-center justify-between rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-4">
+      <div className="flex items-center gap-3">
+        <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] text-sm font-semibold text-slate-300">
+          {index}
+        </div>
+        <div>
+          <div className="font-semibold text-[16px] text-white">{name}</div>
+          <div className="mt-1">
+            <StatusBadge active={active} />
+          </div>
+        </div>
+      </div>
+
+      <div className="relative">
+        <button
+          onClick={onToggleMenu}
+          className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-2 text-sm text-slate-300 transition hover:bg-white/[0.06]"
+        >
+          Manage
+        </button>
+
+        {menuOpen ? (
+          <div className="absolute right-0 z-10 mt-2 w-44 rounded-2xl border border-white/10 bg-slate-950 p-2 shadow-2xl">
+            <button
+              onClick={onToggleActive}
+              className="block w-full rounded-xl px-3 py-2 text-left text-sm text-slate-200 transition hover:bg-white/[0.05]"
+            >
+              {active ? "Make Inactive" : "Make Active"}
+            </button>
+            <button
+              onClick={onDelete}
+              className="block w-full rounded-xl px-3 py-2 text-left text-sm text-red-400 transition hover:bg-white/[0.05]"
+            >
+              Delete
+            </button>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function EmptyListState({ text }: { text: string }) {
+  return (
+    <div className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-8 text-center text-slate-500">
+      {text}
     </div>
   );
 }
