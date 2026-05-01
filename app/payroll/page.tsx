@@ -360,11 +360,12 @@ async function updateDealStatus(dealId: string, nextStatus: string) {
           (deal.status ?? "pending") !== "cancelled"
       );
 
-      const totalDeals = activeDeals.length;
-      const totalPremium = activeDeals.reduce(
-        (sum, deal) => sum + Number(deal.total_premium || 0),
-        0
-      );
+     const totalDeals = repDeals.length;
+
+const totalPremium = repDeals.reduce(
+  (sum, deal) => sum + Number(deal.total_premium || 0),
+  0
+);
       const avgPremium = totalDeals > 0 ? totalPremium / totalDeals : 0;
 
       const totalCancelledPremium = cancelledDeals.reduce(
@@ -399,12 +400,12 @@ async function updateDealStatus(dealId: string, nextStatus: string) {
       const advancesAmount = Number(savedEntry?.advances ?? 0);
 
       const totalCommissionOwed =
-        totalCommissionWritten -
-        firstWeekCancels +
-        autoBonus +
-        spiffAmount +
-        manualBonusAmount -
-        advancesAmount;
+  totalCommissionWritten -
+  firstWeekCancels +
+  autoBonus +
+  spiffAmount +
+  manualBonusAmount -
+  advancesAmount;
 
       return {
         rep,
