@@ -47,6 +47,8 @@ export default function DealsPage() {
   const [search, setSearch] = useState("");
   const [startDate, setStartDate] = useState(thirtyDaysAgo());
   const [endDate, setEndDate] = useState(todayString());
+  const [savingIds, setSavingIds] = useState<Record<string, boolean>>({});
+  const [savedIds, setSavedIds] = useState<Record<string, boolean>>({});
 
   async function loadData() {
     setLoading(true);
@@ -97,8 +99,16 @@ export default function DealsPage() {
     );
   }
 
+  function getCurrentDeal(id: string, overrides: Partial<Deal> = {}) {
+    const existing = deals.find((deal) => deal.id === id);
+    if (!existing) return null;
+    return { ...existing, ...overrides };
+  }
+
   async function saveDeal(deal: Deal) {
     setErrorText("");
+    setSavingIds((prev) => ({ ...prev, [deal.id]: true }));
+    setSavedIds((prev) => ({ ...prev, [deal.id]: false }));
 
     const limited = Number(deal.limited_premium || 0);
     const addon = Number(deal.addon_premium || 0);
@@ -121,12 +131,30 @@ export default function DealsPage() {
       })
       .eq("id", deal.id);
 
+    setSavingIds((prev) => ({ ...prev, [deal.id]: false }));
+
     if (error) {
       setErrorText(`Save deal error: ${error.message}`);
       return;
     }
 
     updateLocalDeal(deal.id, { total_premium: total });
+    setSavedIds((prev) => ({ ...prev, [deal.id]: true }));
+
+    window.setTimeout(() => {
+      setSavedIds((prev) => ({ ...prev, [deal.id]: false }));
+    }, 1200);
+  }
+
+  async function updateAndSave(id: string, updates: Partial<Deal>) {
+    updateLocalDeal(id, updates);
+    const nextDeal = getCurrentDeal(id, updates);
+    if (nextDeal) await saveDeal(nextDeal);
+  }
+
+  async function saveCurrent(id: string) {
+    const current = getCurrentDeal(id);
+    if (current) await saveDeal(current);
   }
 
   const filteredDeals = useMemo(() => {
@@ -156,7 +184,7 @@ export default function DealsPage() {
             Deals
           </h1>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400 sm:text-base">
-            Edit existing deals, add phone numbers, correct premiums, update payment dates, and manage statuses.
+            Edit existing deals. Text fields auto-save when you click away. Dropdowns save immediately.
           </p>
         </div>
       </section>
@@ -217,21 +245,21 @@ export default function DealsPage() {
 
         <div className="overflow-hidden rounded-2xl border border-white/10 bg-slate-900/40">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1450px] text-[15px]">
+            <table className="w-full min-w-[1220px] text-[14px]">
               <thead>
-                <tr className="border-b border-white/10 bg-white/[0.03] text-left text-sm uppercase tracking-[0.18em] text-slate-400">
-                  <th className="px-4 py-4">Sold Date</th>
-                  <th className="px-4 py-4">Paid Date</th>
-                  <th className="px-4 py-4">Member ID</th>
-                  <th className="px-4 py-4">Phone</th>
-                  <th className="px-4 py-4">Rep</th>
-                  <th className="px-4 py-4">Source</th>
-                  <th className="px-4 py-4">Plan</th>
-                  <th className="px-4 py-4">Limited</th>
-                  <th className="px-4 py-4">Add-On</th>
-                  <th className="px-4 py-4">Total</th>
-                  <th className="px-4 py-4">Status</th>
-                  <th className="px-4 py-4 text-right">Action</th>
+                <tr className="border-b border-white/10 bg-white/[0.03] text-left text-xs uppercase tracking-[0.14em] text-slate-400">
+                  <th className="px-3 py-4">Sold</th>
+                  <th className="px-3 py-4">Paid</th>
+                  <th className="px-3 py-4">Member ID</th>
+                  <th className="px-3 py-4">Phone</th>
+                  <th className="px-3 py-4">Rep</th>
+                  <th className="px-3 py-4">Source</th>
+                  <th className="px-3 py-4">Plan</th>
+                  <th className="px-3 py-4">Limited</th>
+                  <th className="px-3 py-4">Add-On</th>
+                  <th className="px-3 py-4">Total</th>
+                  <th className="px-3 py-4">Status</th>
+                  <th className="px-3 py-4 text-right">Save</th>
                 </tr>
               </thead>
 
@@ -246,18 +274,19 @@ export default function DealsPage() {
                       key={deal.id}
                       className="border-b border-white/5 transition-colors hover:bg-white/[0.03]"
                     >
-                      <td className="px-4 py-4">
+                      <td className="px-3 py-3">
                         <input
                           type="date"
                           value={deal.deal_date}
                           onChange={(e) =>
                             updateLocalDeal(deal.id, { deal_date: e.target.value })
                           }
-                          className="table-input w-36"
+                          onBlur={() => saveCurrent(deal.id)}
+                          className="table-input w-32"
                         />
                       </td>
 
-                      <td className="px-4 py-4">
+                      <td className="px-3 py-3">
                         <input
                           type="date"
                           value={deal.payment_date ?? ""}
@@ -266,37 +295,40 @@ export default function DealsPage() {
                               payment_date: e.target.value || null,
                             })
                           }
-                          className="table-input w-36"
+                          onBlur={() => saveCurrent(deal.id)}
+                          className="table-input w-32"
                         />
                       </td>
 
-                      <td className="px-4 py-4">
+                      <td className="px-3 py-3">
                         <input
                           value={deal.member_id ?? ""}
                           onChange={(e) =>
                             updateLocalDeal(deal.id, { member_id: e.target.value })
                           }
-                          className="table-input w-36"
+                          onBlur={() => saveCurrent(deal.id)}
+                          className="table-input w-28"
                         />
                       </td>
 
-                      <td className="px-4 py-4">
+                      <td className="px-3 py-3">
                         <input
                           value={deal.phone_number ?? ""}
                           onChange={(e) =>
                             updateLocalDeal(deal.id, { phone_number: e.target.value })
                           }
-                          className="table-input w-40"
+                          onBlur={() => saveCurrent(deal.id)}
+                          className="table-input w-32"
                         />
                       </td>
 
-                      <td className="px-4 py-4">
+                      <td className="px-3 py-3">
                         <select
                           value={deal.rep_id ?? ""}
                           onChange={(e) =>
-                            updateLocalDeal(deal.id, { rep_id: e.target.value })
+                            updateAndSave(deal.id, { rep_id: e.target.value || null })
                           }
-                          className="table-input w-40"
+                          className="table-input w-32"
                         >
                           <option value="">No rep</option>
                           {reps.map((rep) => (
@@ -307,13 +339,13 @@ export default function DealsPage() {
                         </select>
                       </td>
 
-                      <td className="px-4 py-4">
+                      <td className="px-3 py-3">
                         <select
                           value={deal.source_id ?? ""}
                           onChange={(e) =>
-                            updateLocalDeal(deal.id, { source_id: e.target.value })
+                            updateAndSave(deal.id, { source_id: e.target.value || null })
                           }
-                          className="table-input w-44"
+                          className="table-input w-36"
                         >
                           <option value="">No source</option>
                           {sources.map((source) => (
@@ -324,13 +356,13 @@ export default function DealsPage() {
                         </select>
                       </td>
 
-                      <td className="px-4 py-4">
+                      <td className="px-3 py-3">
                         <select
                           value={deal.plan_id ?? ""}
                           onChange={(e) =>
-                            updateLocalDeal(deal.id, { plan_id: e.target.value })
+                            updateAndSave(deal.id, { plan_id: e.target.value || null })
                           }
-                          className="table-input w-44"
+                          className="table-input w-36"
                         >
                           <option value="">No plan</option>
                           {plans.map((plan) => (
@@ -341,7 +373,7 @@ export default function DealsPage() {
                         </select>
                       </td>
 
-                      <td className="px-4 py-4">
+                      <td className="px-3 py-3">
                         <input
                           type="number"
                           step="0.01"
@@ -351,11 +383,12 @@ export default function DealsPage() {
                               limited_premium: Number(e.target.value || 0),
                             })
                           }
-                          className="table-input w-28"
+                          onBlur={() => saveCurrent(deal.id)}
+                          className="table-input w-24"
                         />
                       </td>
 
-                      <td className="px-4 py-4">
+                      <td className="px-3 py-3">
                         <input
                           type="number"
                           step="0.01"
@@ -365,21 +398,22 @@ export default function DealsPage() {
                               addon_premium: Number(e.target.value || 0),
                             })
                           }
-                          className="table-input w-28"
+                          onBlur={() => saveCurrent(deal.id)}
+                          className="table-input w-24"
                         />
                       </td>
 
-                      <td className="px-4 py-4 font-semibold text-white">
+                      <td className="px-3 py-3 font-semibold text-white">
                         {currency(total)}
                       </td>
 
-                      <td className="px-4 py-4">
+                      <td className="px-3 py-3">
                         <select
                           value={deal.status ?? "active"}
                           onChange={(e) =>
-                            updateLocalDeal(deal.id, { status: e.target.value })
+                            updateAndSave(deal.id, { status: e.target.value })
                           }
-                          className="table-input w-36"
+                          className="table-input w-28"
                         >
                           <option value="active">Active</option>
                           <option value="pending">Pending</option>
@@ -387,13 +421,19 @@ export default function DealsPage() {
                         </select>
                       </td>
 
-                      <td className="px-4 py-4 text-right">
-                        <button
-                          onClick={() => saveDeal(deal)}
-                          className="rounded-2xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-500"
-                        >
-                          Save
-                        </button>
+                      <td className="px-3 py-3 text-right">
+                        {savingIds[deal.id] ? (
+                          <span className="text-xs text-slate-400">Saving...</span>
+                        ) : savedIds[deal.id] ? (
+                          <span className="text-xs text-emerald-400">Saved</span>
+                        ) : (
+                          <button
+                            onClick={() => saveCurrent(deal.id)}
+                            className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-xs font-medium text-slate-300 transition hover:bg-white/[0.06]"
+                          >
+                            Save
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );
@@ -425,11 +465,11 @@ export default function DealsPage() {
         }
 
         .table-input {
-          border-radius: 0.85rem;
+          border-radius: 0.75rem;
           border: 1px solid rgba(255, 255, 255, 0.1);
           background: rgb(15 23 42);
-          padding: 0.55rem 0.75rem;
-          font-size: 14px;
+          padding: 0.5rem 0.6rem;
+          font-size: 13px;
           color: white;
           outline: none;
         }
