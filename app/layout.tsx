@@ -14,6 +14,7 @@ const navItems = [
   { href: "/salesboard", label: "Salesboard" },
   { href: "/sources", label: "Settings" },
   { href: "/reports", label: "Reports" },
+  { href: "/deals", label: "Deals" },
 ];
 
 export default function RootLayout({

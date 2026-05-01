@@ -249,29 +249,27 @@ export default function PayrollPage() {
     setSavingMap((prev) => ({ ...prev, [repId]: false }));
   }
 
-  async function updateDealStatus(dealId: string, nextStatus: string) {
-    const updates: { status: string; payment_date?: string | null } = {
-      status: nextStatus,
-    };
+async function updateDealStatus(dealId: string, nextStatus: string) {
+  const updates = {
+    status: nextStatus,
+  };
 
-    if (nextStatus === "cancelled") {
-      updates.payment_date = null;
-    }
+  const { error } = await supabase
+    .from("deals")
+    .update(updates)
+    .eq("id", dealId);
 
-    const { error } = await supabase
-      .from("deals")
-      .update(updates)
-      .eq("id", dealId);
-
-    if (error) {
-      setErrorText(`Status update error: ${error.message}`);
-      return;
-    }
-
-    setDeals((prev) =>
-      prev.map((deal) => (deal.id === dealId ? { ...deal, ...updates } : deal))
-    );
+  if (error) {
+    setErrorText(`Status update error: ${error.message}`);
+    return;
   }
+
+  setDeals((prev) =>
+    prev.map((deal) =>
+      deal.id === dealId ? { ...deal, status: nextStatus } : deal
+    )
+  );
+}
 
   async function markDealPaidToday(dealId: string) {
     const paidDate = todayString();
