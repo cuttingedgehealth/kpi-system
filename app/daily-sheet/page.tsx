@@ -51,6 +51,7 @@ type Deal = {
   payment_date: string | null;
   rep_id: string | null;
   member_id: string | null;
+  phone_number: string | null;
   status: string | null;
   source_id: string | null;
   plan_id: string | null;
@@ -83,6 +84,7 @@ export default function DailySheetPage() {
   const [dealForm, setDealForm] = useState({
     rep_id: "",
     member_id: "",
+    phone_number: "",
     source_id: "",
     plan_id: "",
     limited_premium: "",
@@ -316,6 +318,7 @@ export default function DailySheetPage() {
       payment_date: paymentDate,
       rep_id: dealForm.rep_id,
       member_id: dealForm.member_id.trim(),
+      phone_number: dealForm.phone_number.trim() || null,
       source_id: dealForm.source_id,
       plan_id: dealForm.plan_id,
       limited_premium: limited,
@@ -333,6 +336,7 @@ export default function DailySheetPage() {
     setDealForm({
       rep_id: "",
       member_id: "",
+      phone_number: "",
       source_id: "",
       plan_id: "",
       limited_premium: "",
@@ -566,6 +570,18 @@ export default function DailySheetPage() {
                   placeholder="Enter member ID"
                 />
               </Field>
+
+              <Field label="Phone Number">
+  <input
+    type="text"
+    value={dealForm.phone_number}
+    onChange={(e) =>
+      setDealForm((prev) => ({ ...prev, phone_number: e.target.value }))
+    }
+    className="field-input"
+    placeholder="Enter phone number"
+  />
+</Field>
 
               <Field label="Plan">
                 <select

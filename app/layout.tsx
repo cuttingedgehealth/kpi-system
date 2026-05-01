@@ -13,6 +13,7 @@ const navItems = [
   { href: "/payroll", label: "Payroll" },
   { href: "/salesboard", label: "Salesboard" },
   { href: "/sources", label: "Settings" },
+  { href: "/reports", label: "Reports" },
 ];
 
 export default function RootLayout({
