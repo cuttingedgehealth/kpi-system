@@ -12,6 +12,8 @@ type Deal = {
   id: string;
   deal_date: string;
   payment_date: string | null;
+  recovered_date: string | null;
+  payroll_paid: boolean;
   rep_id: string | null;
   member_id: string | null;
   phone_number: string | null;
@@ -119,6 +121,8 @@ export default function DealsPage() {
       .update({
         deal_date: deal.deal_date,
         payment_date: deal.payment_date || null,
+        recovered_date: deal.recovered_date || null,
+        payroll_paid: deal.payroll_paid ?? false,
         rep_id: deal.rep_id || null,
         member_id: deal.member_id?.trim() || null,
         phone_number: deal.phone_number?.trim() || null,
@@ -245,7 +249,7 @@ export default function DealsPage() {
 
         <div className="overflow-hidden rounded-2xl border border-white/10 bg-slate-900/40">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1220px] text-[14px]">
+            <table className="w-full min-w-[1120px] text-[14px]">
               <thead>
                 <tr className="border-b border-white/10 bg-white/[0.03] text-left text-xs uppercase tracking-[0.14em] text-slate-400">
                   <th className="px-3 py-4">Sold</th>
@@ -259,7 +263,7 @@ export default function DealsPage() {
                   <th className="px-3 py-4">Add-On</th>
                   <th className="px-3 py-4">Total</th>
                   <th className="px-3 py-4">Status</th>
-                              </tr>
+                </tr>
               </thead>
 
               <tbody>
@@ -281,7 +285,7 @@ export default function DealsPage() {
                             updateLocalDeal(deal.id, { deal_date: e.target.value })
                           }
                           onBlur={() => saveCurrent(deal.id)}
-                          className="table-input w-32"
+                          className="table-input w-28"
                         />
                       </td>
 
@@ -295,7 +299,7 @@ export default function DealsPage() {
                             })
                           }
                           onBlur={() => saveCurrent(deal.id)}
-                          className="table-input w-32"
+                          className="table-input w-28"
                         />
                       </td>
 
@@ -317,7 +321,7 @@ export default function DealsPage() {
                             updateLocalDeal(deal.id, { phone_number: e.target.value })
                           }
                           onBlur={() => saveCurrent(deal.id)}
-                          className="table-input w-32"
+                          className="table-input w-28"
                         />
                       </td>
 
@@ -327,7 +331,7 @@ export default function DealsPage() {
                           onChange={(e) =>
                             updateAndSave(deal.id, { rep_id: e.target.value || null })
                           }
-                          className="table-input w-32"
+                          className="table-input w-28"
                         >
                           <option value="">No rep</option>
                           {reps.map((rep) => (
@@ -344,7 +348,7 @@ export default function DealsPage() {
                           onChange={(e) =>
                             updateAndSave(deal.id, { source_id: e.target.value || null })
                           }
-                          className="table-input w-36"
+                          className="table-input w-32"
                         >
                           <option value="">No source</option>
                           {sources.map((source) => (
@@ -361,7 +365,7 @@ export default function DealsPage() {
                           onChange={(e) =>
                             updateAndSave(deal.id, { plan_id: e.target.value || null })
                           }
-                          className="table-input w-36"
+                          className="table-input w-32"
                         >
                           <option value="">No plan</option>
                           {plans.map((plan) => (
@@ -383,7 +387,7 @@ export default function DealsPage() {
                             })
                           }
                           onBlur={() => saveCurrent(deal.id)}
-                          className="table-input w-24"
+                          className="table-input w-20"
                         />
                       </td>
 
@@ -398,29 +402,43 @@ export default function DealsPage() {
                             })
                           }
                           onBlur={() => saveCurrent(deal.id)}
-                          className="table-input w-24"
+                          className="table-input w-20"
                         />
                       </td>
 
                       <td className="px-3 py-3 font-semibold text-white">
-                        {currency(total)}
+                        <div className="flex items-center gap-2">
+                          <span>{currency(total)}</span>
+                          {savingIds[deal.id] ? (
+                            <span className="text-xs text-slate-400">...</span>
+                          ) : null}
+                          {savedIds[deal.id] ? (
+                            <span className="text-xs text-emerald-400">✓</span>
+                          ) : null}
+                        </div>
                       </td>
 
                       <td className="px-3 py-3">
                         <select
                           value={deal.status ?? "active"}
-                          onChange={(e) =>
-                            updateAndSave(deal.id, { status: e.target.value })
-                          }
+                          onChange={(e) => {
+                            const nextStatus = e.target.value;
+                            updateAndSave(deal.id, {
+                              status: nextStatus,
+                              ...(nextStatus === "recovered"
+                                ? { recovered_date: todayString() }
+                                : {}),
+                            });
+                          }}
                           className="table-input w-28"
                         >
                           <option value="active">Active</option>
                           <option value="pending">Pending</option>
                           <option value="cancelled">Cancelled</option>
+                          <option value="recovered">Recovered</option>
                         </select>
                       </td>
-
-                                        </tr>
+                    </tr>
                   );
                 })}
 
@@ -453,7 +471,7 @@ export default function DealsPage() {
           border-radius: 0.75rem;
           border: 1px solid rgba(255, 255, 255, 0.1);
           background: rgb(15 23 42);
-          padding: 0.5rem 0.6rem;
+          padding: 0.5rem 0.55rem;
           font-size: 13px;
           color: white;
           outline: none;
