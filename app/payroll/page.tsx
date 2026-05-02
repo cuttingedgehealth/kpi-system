@@ -378,20 +378,12 @@ export default function PayrollPage() {
           (deal.status ?? "pending") !== "cancelled"
       );
 
-      const writtenDeals = repDeals.filter((deal) => {
-        const isRecoveredInPeriod = inRange(deal.recovered_date, startDate, endDate);
+   const totalDeals = repDeals.length;
 
-        if (isRecoveredInPeriod) return true;
-
-        return (deal.status ?? "active") !== "cancelled";
-      });
-
-      const totalDeals = writtenDeals.length;
-
-      const totalPremium = writtenDeals.reduce(
-        (sum, deal) => sum + Number(deal.total_premium || 0),
-        0
-      );
+const totalPremium = repDeals.reduce(
+  (sum, deal) => sum + Number(deal.total_premium || 0),
+  0
+);
 
       const avgPremium = totalDeals > 0 ? totalPremium / totalDeals : 0;
 
