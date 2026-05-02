@@ -183,8 +183,8 @@ export default function PayrollPage() {
   }
 
   useEffect(() => {
-    loadData();
-  }, [startDate, endDate]);
+  loadData();
+}, []);
 
   function getPlanName(planId: string | null) {
     if (!planId) return "—";

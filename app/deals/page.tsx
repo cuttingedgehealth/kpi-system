@@ -91,9 +91,9 @@ export default function DealsPage() {
     setLoading(false);
   }
 
-  useEffect(() => {
-    loadData();
-  }, [startDate, endDate]);
+ useEffect(() => {
+  loadData();
+}, []);
 
   function updateLocalDeal(id: string, updates: Partial<Deal>) {
     setDeals((prev) =>
