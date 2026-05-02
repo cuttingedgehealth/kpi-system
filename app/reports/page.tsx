@@ -29,9 +29,18 @@ function currency(value: number) {
   return `$${Number(value || 0).toFixed(2)}`;
 }
 
+function percent(value: number) {
+  return `${Number(value || 0).toFixed(2)}%`;
+}
+
 function csvEscape(value: string | number) {
   const str = String(value ?? "");
   return `"${str.replace(/"/g, '""')}"`;
+}
+
+function isPostDate(deal: Deal) {
+  if (!deal.payment_date) return "Yes";
+  return deal.payment_date !== deal.deal_date ? "Yes" : "No";
 }
 
 export default function ReportsPage() {
@@ -95,11 +104,6 @@ export default function ReportsPage() {
     return sources.find((source) => source.id === sourceId)?.name ?? "—";
   }
 
-  function isPostDate(deal: Deal) {
-    if (!deal.payment_date) return "Yes";
-    return deal.payment_date !== deal.deal_date ? "Yes" : "No";
-  }
-
   const filteredDeals = useMemo(() => {
     return deals
       .filter((deal) => {
@@ -108,9 +112,7 @@ export default function ReportsPage() {
           deal.source_id !== null &&
           selectedSourceIds.includes(deal.source_id);
 
-        const dateMatch =
-          deal.deal_date >= startDate && deal.deal_date <= endDate;
-
+        const dateMatch = deal.deal_date >= startDate && deal.deal_date <= endDate;
         const activeMatch = (deal.status ?? "active") !== "cancelled";
 
         return sourceMatch && dateMatch && activeMatch;
@@ -118,19 +120,73 @@ export default function ReportsPage() {
       .sort((a, b) => a.deal_date.localeCompare(b.deal_date));
   }, [deals, selectedSourceIds, startDate, endDate]);
 
-  const totalPremium = useMemo(() => {
-    return filteredDeals.reduce(
+  const reportStats = useMemo(() => {
+    const dealCount = filteredDeals.length;
+
+    const totalPremium = filteredDeals.reduce(
       (sum, deal) => sum + Number(deal.total_premium || 0),
       0
     );
+
+    const avgPremium = dealCount > 0 ? totalPremium / dealCount : 0;
+
+    const postDateCount = filteredDeals.filter(
+      (deal) => isPostDate(deal) === "Yes"
+    ).length;
+
+    const sameDayCount = dealCount - postDateCount;
+
+    const postDatePct = dealCount > 0 ? (postDateCount / dealCount) * 100 : 0;
+    const sameDayPct = dealCount > 0 ? (sameDayCount / dealCount) * 100 : 0;
+
+    return {
+      dealCount,
+      totalPremium,
+      avgPremium,
+      postDateCount,
+      sameDayCount,
+      postDatePct,
+      sameDayPct,
+    };
   }, [filteredDeals]);
 
+  const sourceBreakdown = useMemo(() => {
+    return selectedSourceIds
+      .map((sourceId) => {
+        const source = sources.find((s) => s.id === sourceId);
+        const sourceDeals = filteredDeals.filter((deal) => deal.source_id === sourceId);
+
+        const dealCount = sourceDeals.length;
+        const premium = sourceDeals.reduce(
+          (sum, deal) => sum + Number(deal.total_premium || 0),
+          0
+        );
+        const avgPremium = dealCount > 0 ? premium / dealCount : 0;
+        const postDateCount = sourceDeals.filter(
+          (deal) => isPostDate(deal) === "Yes"
+        ).length;
+        const postDatePct = dealCount > 0 ? (postDateCount / dealCount) * 100 : 0;
+
+        return {
+          source,
+          dealCount,
+          premium,
+          avgPremium,
+          postDateCount,
+          postDatePct,
+        };
+      })
+      .filter((row) => row.source)
+      .sort((a, b) => b.premium - a.premium);
+  }, [filteredDeals, selectedSourceIds, sources]);
+
   function downloadCsv() {
-    const header = ["Phone Number", "Sold Date", "Premium", "Post Date"];
+    const header = ["Phone Number", "Sold Date", "Source", "Premium", "Post Date"];
 
     const rows = filteredDeals.map((deal) => [
       deal.phone_number || "",
       deal.deal_date,
+      getSourceName(deal.source_id),
       Number(deal.total_premium || 0).toFixed(2),
       isPostDate(deal),
     ]);
@@ -158,17 +214,26 @@ export default function ReportsPage() {
     <div className="space-y-8 text-white">
       <section className="relative overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-8 shadow-2xl">
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(59,130,246,0.14),transparent_25%),radial-gradient(circle_at_bottom_left,rgba(16,185,129,0.08),transparent_20%)]" />
-        <div className="relative">
-          <div className="mb-3 inline-flex items-center rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium uppercase tracking-[0.2em] text-slate-400">
-            Vendor Reporting
+        <div className="relative flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+          <div>
+            <div className="mb-3 inline-flex items-center rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium uppercase tracking-[0.2em] text-slate-400">
+              Vendor Reporting
+            </div>
+            <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
+              Reports
+            </h1>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400 sm:text-base">
+              Analyze deal quality by lead source, then export only the vendor-safe fields:
+              phone number, sold date, source, premium, and post-date status.
+            </p>
           </div>
-          <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
-            Reports
-          </h1>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400 sm:text-base">
-            Pull deal reports by lead source and date range. Export includes phone number,
-            sold date, premium, and post-date status only.
-          </p>
+
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <HeroMetric label="Deals" value={String(reportStats.dealCount)} />
+            <HeroMetric label="Premium" value={currency(reportStats.totalPremium)} />
+            <HeroMetric label="Avg Premium" value={currency(reportStats.avgPremium)} />
+            <HeroMetric label="Post Date %" value={percent(reportStats.postDatePct)} />
+          </div>
         </div>
       </section>
 
@@ -179,7 +244,7 @@ export default function ReportsPage() {
       ) : null}
 
       <section className="rounded-3xl border border-white/10 bg-slate-950/80 p-6 shadow-xl">
-        <div className="mb-6 grid gap-4 lg:grid-cols-[1fr_1fr_auto]">
+        <div className="mb-6 grid gap-4 lg:grid-cols-[1fr_1fr_auto_auto]">
           <label>
             <div className="mb-2 text-xs uppercase tracking-[0.18em] text-slate-500">
               Start Date
@@ -206,12 +271,30 @@ export default function ReportsPage() {
 
           <div className="flex items-end">
             <button
+              onClick={loadData}
+              className="w-full rounded-2xl border border-white/10 bg-white/[0.03] px-5 py-3 text-sm font-semibold text-slate-300 transition hover:bg-white/[0.06]"
+            >
+              Refresh
+            </button>
+          </div>
+
+          <div className="flex items-end">
+            <button
               onClick={downloadCsv}
               className="w-full rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-500"
             >
               Download CSV
             </button>
           </div>
+        </div>
+
+        <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+          <KpiTile label="Deals" value={String(reportStats.dealCount)} />
+          <KpiTile label="Premium" value={currency(reportStats.totalPremium)} />
+          <KpiTile label="Avg Premium" value={currency(reportStats.avgPremium)} />
+          <KpiTile label="Post Dates" value={String(reportStats.postDateCount)} />
+          <KpiTile label="Post Date %" value={percent(reportStats.postDatePct)} />
+          <KpiTile label="Same Day %" value={percent(reportStats.sameDayPct)} />
         </div>
 
         <div className="mb-6 rounded-2xl border border-white/10 bg-slate-900/40 p-4">
@@ -260,13 +343,77 @@ export default function ReportsPage() {
           </div>
         </div>
 
-        <div className="mb-5 grid gap-4 md:grid-cols-3">
-          <KpiTile label="Deals" value={String(filteredDeals.length)} />
-          <KpiTile label="Premium" value={currency(totalPremium)} />
-          <KpiTile label="Sources Selected" value={String(selectedSourceIds.length)} />
+        <div className="mb-6 overflow-hidden rounded-2xl border border-white/10 bg-slate-900/40">
+          <div className="border-b border-white/10 bg-white/[0.03] px-4 py-4">
+            <h2 className="text-xl font-semibold tracking-tight">Source Breakdown</h2>
+            <p className="mt-1 text-sm text-slate-400">
+              Quick source-level read before exporting.
+            </p>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[900px] text-[16px]">
+              <thead>
+                <tr className="border-b border-white/10 bg-white/[0.03] text-left text-sm uppercase tracking-[0.18em] text-slate-400">
+                  <th className="px-4 py-4 font-medium">Source</th>
+                  <th className="px-4 py-4 font-medium">Type</th>
+                  <th className="px-4 py-4 text-right font-medium">Deals</th>
+                  <th className="px-4 py-4 text-right font-medium">Premium</th>
+                  <th className="px-4 py-4 text-right font-medium">Avg Premium</th>
+                  <th className="px-4 py-4 text-right font-medium">Post Dates</th>
+                  <th className="px-4 py-4 text-right font-medium">Post Date %</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sourceBreakdown.map((row) => (
+                  <tr
+                    key={row.source!.id}
+                    className="border-b border-white/5 transition-colors hover:bg-white/[0.03]"
+                  >
+                    <td className="px-4 py-5 font-semibold text-white">
+                      {row.source!.name}
+                    </td>
+                    <td className="px-4 py-5 capitalize text-slate-100">
+                      {row.source!.type}
+                    </td>
+                    <td className="px-4 py-5 text-right text-slate-100">
+                      {row.dealCount}
+                    </td>
+                    <td className="px-4 py-5 text-right font-medium text-white">
+                      {currency(row.premium)}
+                    </td>
+                    <td className="px-4 py-5 text-right text-slate-100">
+                      {currency(row.avgPremium)}
+                    </td>
+                    <td className="px-4 py-5 text-right text-slate-100">
+                      {row.postDateCount}
+                    </td>
+                    <td className="px-4 py-5 text-right text-slate-100">
+                      {percent(row.postDatePct)}
+                    </td>
+                  </tr>
+                ))}
+
+                {sourceBreakdown.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="px-4 py-10 text-center text-slate-500">
+                      No selected source data for this date range.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
         </div>
 
         <div className="overflow-hidden rounded-2xl border border-white/10 bg-slate-900/40">
+          <div className="border-b border-white/10 bg-white/[0.03] px-4 py-4">
+            <h2 className="text-xl font-semibold tracking-tight">Export Preview</h2>
+            <p className="mt-1 text-sm text-slate-400">
+              This preview matches the CSV export fields.
+            </p>
+          </div>
+
           <div className="overflow-x-auto">
             <table className="w-full min-w-[900px] text-[16px]">
               <thead>
@@ -328,6 +475,17 @@ export default function ReportsPage() {
           border-color: rgba(148, 163, 184, 0.9);
         }
       `}</style>
+    </div>
+  );
+}
+
+function HeroMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 backdrop-blur">
+      <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
+        {label}
+      </div>
+      <div className="mt-1 text-xl font-semibold text-white">{value}</div>
     </div>
   );
 }
