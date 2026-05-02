@@ -15,6 +15,8 @@ type Deal = {
   id: string;
   deal_date: string;
   payment_date: string | null;
+  recovered_date: string | null;
+  payroll_paid: boolean;
   rep_id: string | null;
   member_id: string | null;
   status: string | null;
@@ -98,14 +100,10 @@ export default function PayrollPage() {
   const [startDate, setStartDate] = useState(formatDate(startOfWeek(today)));
   const [endDate, setEndDate] = useState(formatDate(endOfWeek(today)));
 
-  const [overrideInputs, setOverrideInputs] = useState<Record<string, string>>(
-    {}
-  );
+  const [overrideInputs, setOverrideInputs] = useState<Record<string, string>>({});
   const [spiffsInputs, setSpiffsInputs] = useState<Record<string, string>>({});
   const [bonusInputs, setBonusInputs] = useState<Record<string, string>>({});
-  const [advancesInputs, setAdvancesInputs] = useState<Record<string, string>>(
-    {}
-  );
+  const [advancesInputs, setAdvancesInputs] = useState<Record<string, string>>({});
   const [notesInputs, setNotesInputs] = useState<Record<string, string>>({});
 
   const [expandedRepId, setExpandedRepId] = useState<string | null>(null);
@@ -144,20 +142,11 @@ export default function PayrollPage() {
       .eq("period_start", startDate)
       .eq("period_end", endDate);
 
-    if (repError)
-      setErrorText(`Rep load error: ${repError.message}`);
-    if (dealError)
-      setErrorText((prev) => prev || `Deal load error: ${dealError.message}`);
-    if (planError)
-      setErrorText((prev) => prev || `Plan load error: ${planError.message}`);
-    if (sourceError)
-      setErrorText(
-        (prev) => prev || `Source load error: ${sourceError.message}`
-      );
-    if (payrollError)
-      setErrorText(
-        (prev) => prev || `Payroll load error: ${payrollError.message}`
-      );
+    if (repError) setErrorText(`Rep load error: ${repError.message}`);
+    if (dealError) setErrorText((prev) => prev || `Deal load error: ${dealError.message}`);
+    if (planError) setErrorText((prev) => prev || `Plan load error: ${planError.message}`);
+    if (sourceError) setErrorText((prev) => prev || `Source load error: ${sourceError.message}`);
+    if (payrollError) setErrorText((prev) => prev || `Payroll load error: ${payrollError.message}`);
 
     const repList = (repData ?? []) as Rep[];
     const payrollList = (payrollData ?? []) as PayrollEntry[];
@@ -211,10 +200,7 @@ export default function PayrollPage() {
     return payrollEntries.find((entry) => entry.rep_id === repId);
   }
 
-  async function upsertPayrollEntry(
-    repId: string,
-    updates: Partial<PayrollEntry>
-  ) {
+  async function upsertPayrollEntry(repId: string, updates: Partial<PayrollEntry>) {
     setErrorText("");
     setSavingMap((prev) => ({ ...prev, [repId]: true }));
 
@@ -225,8 +211,7 @@ export default function PayrollPage() {
       rep_id: repId,
       period_start: startDate,
       period_end: endDate,
-      override_percent:
-        updates.override_percent ?? existing?.override_percent ?? null,
+      override_percent: updates.override_percent ?? existing?.override_percent ?? null,
       spiffs: updates.spiffs ?? existing?.spiffs ?? 0,
       bonus: updates.bonus ?? existing?.bonus ?? 0,
       advances: updates.advances ?? existing?.advances ?? 0,
@@ -249,27 +234,39 @@ export default function PayrollPage() {
     setSavingMap((prev) => ({ ...prev, [repId]: false }));
   }
 
-async function updateDealStatus(dealId: string, nextStatus: string) {
-  const updates = {
-    status: nextStatus,
-  };
+  async function updateDealStatus(dealId: string, nextStatus: string) {
+    const existingDeal = deals.find((deal) => deal.id === dealId);
 
-  const { error } = await supabase
-    .from("deals")
-    .update(updates)
-    .eq("id", dealId);
+    const updates: {
+      status: string;
+      recovered_date?: string | null;
+      payroll_paid?: boolean;
+    } = {
+      status: nextStatus,
+    };
 
-  if (error) {
-    setErrorText(`Status update error: ${error.message}`);
-    return;
+    if (nextStatus === "recovered") {
+      updates.recovered_date = todayString();
+    }
+
+    if (nextStatus === "cancelled" && existingDeal?.payment_date) {
+      updates.payroll_paid = true;
+    }
+
+    const { error } = await supabase
+      .from("deals")
+      .update(updates)
+      .eq("id", dealId);
+
+    if (error) {
+      setErrorText(`Status update error: ${error.message}`);
+      return;
+    }
+
+    setDeals((prev) =>
+      prev.map((deal) => (deal.id === dealId ? { ...deal, ...updates } : deal))
+    );
   }
-
-  setDeals((prev) =>
-    prev.map((deal) =>
-      deal.id === dealId ? { ...deal, status: nextStatus } : deal
-    )
-  );
-}
 
   async function markDealPaidToday(dealId: string) {
     const paidDate = todayString();
@@ -340,18 +337,34 @@ async function updateDealStatus(dealId: string, nextStatus: string) {
 
   const payrollRows = useMemo(() => {
     return reps.map((rep) => {
-      const repDeals = deals.filter(
-        (deal) =>
-          deal.rep_id === rep.id && inRange(deal.payment_date, startDate, endDate)
-      );
+      const repDeals = deals.filter((deal) => {
+        if (deal.rep_id !== rep.id) return false;
 
-      const activeDeals = repDeals.filter(
-        (deal) => (deal.status ?? "active") !== "cancelled"
-      );
+        const paidInPeriod = inRange(deal.payment_date, startDate, endDate);
+
+        const recoveredInPeriod =
+          (deal.status ?? "active") === "recovered" &&
+          !deal.payroll_paid &&
+          inRange(deal.recovered_date, startDate, endDate);
+
+        return paidInPeriod || recoveredInPeriod;
+      });
 
       const cancelledDeals = repDeals.filter(
         (deal) => (deal.status ?? "active") === "cancelled"
       );
+
+      const payableDeals = repDeals.filter((deal) => {
+        const status = deal.status ?? "active";
+
+        if (status === "cancelled") return false;
+
+        if (status === "recovered") {
+          return !deal.payroll_paid;
+        }
+
+        return status === "active" || status === "pending";
+      });
 
       const unpaidDeals = deals.filter(
         (deal) =>
@@ -360,12 +373,13 @@ async function updateDealStatus(dealId: string, nextStatus: string) {
           (deal.status ?? "pending") !== "cancelled"
       );
 
-     const totalDeals = repDeals.length;
+      const totalDeals = payableDeals.length;
 
-const totalPremium = repDeals.reduce(
-  (sum, deal) => sum + Number(deal.total_premium || 0),
-  0
-);
+      const totalPremium = payableDeals.reduce(
+        (sum, deal) => sum + Number(deal.total_premium || 0),
+        0
+      );
+
       const avgPremium = totalDeals > 0 ? totalPremium / totalDeals : 0;
 
       const totalCancelledPremium = cancelledDeals.reduce(
@@ -389,7 +403,8 @@ const totalPremium = repDeals.reduce(
       }
 
       const appliedBaseRate = savedOverride ?? baseRate;
-      const tierBonusRate = savedOverride == null ? Math.max(tierRate - 0.4, 0) : 0;
+      const tierBonusRate =
+        savedOverride == null ? Math.max(tierRate - 0.4, 0) : 0;
 
       const totalCommissionWritten = totalPremium * appliedBaseRate;
       const firstWeekCancels = totalCancelledPremium * appliedBaseRate;
@@ -400,16 +415,18 @@ const totalPremium = repDeals.reduce(
       const advancesAmount = Number(savedEntry?.advances ?? 0);
 
       const totalCommissionOwed =
-  totalCommissionWritten -
-  firstWeekCancels +
-  autoBonus +
-  spiffAmount +
-  manualBonusAmount -
-  advancesAmount;
+        totalCommissionWritten -
+        firstWeekCancels +
+        autoBonus +
+        spiffAmount +
+        manualBonusAmount -
+        advancesAmount;
 
       return {
         rep,
         repDeals,
+        payableDeals,
+        cancelledDeals,
         unpaidDeals,
         totalDeals,
         totalPremium,
@@ -459,8 +476,9 @@ const totalPremium = repDeals.reduce(
               Payroll
             </h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400 sm:text-base">
-              Payroll is tied to cleared payment dates, not sold dates. Review paid deals,
-              mark post-dates when they clear, and finalize rep payout adjustments.
+              Payroll is tied to cleared payment dates. Cancelled deals remain visible
+              but reduce commission through first-week cancels. Recovered deals only pay
+              if they were not previously paid.
             </p>
           </div>
 
@@ -510,8 +528,9 @@ const totalPremium = repDeals.reduce(
                   {row.rep.name}
                 </h2>
                 <p className="mt-2 text-sm text-slate-400">
-                  Paid Deals: {row.totalDeals} | Paid Premium: {currency(row.totalPremium)} |
-                  Avg Premium: {currency(row.avgPremium)}
+                  Payable Deals: {row.totalDeals} | Payable Premium:{" "}
+                  {currency(row.totalPremium)} | Avg Premium:{" "}
+                  {currency(row.avgPremium)}
                 </p>
               </div>
 
@@ -578,25 +597,23 @@ const totalPremium = repDeals.reduce(
               </FieldCard>
 
               <FieldCard label={`Bonus (Auto: ${currency(row.autoBonus)})`}>
-                <div className="space-y-2">
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={bonusInputs[row.rep.id] ?? ""}
-                    onChange={(e) =>
-                      setBonusInputs((prev) => ({
-                        ...prev,
-                        [row.rep.id]: e.target.value,
-                      }))
-                    }
-                    onBlur={() =>
-                      upsertPayrollEntry(row.rep.id, {
-                        bonus: Number(bonusInputs[row.rep.id] || 0),
-                      })
-                    }
-                    className="field-input"
-                  />
-                </div>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={bonusInputs[row.rep.id] ?? ""}
+                  onChange={(e) =>
+                    setBonusInputs((prev) => ({
+                      ...prev,
+                      [row.rep.id]: e.target.value,
+                    }))
+                  }
+                  onBlur={() =>
+                    upsertPayrollEntry(row.rep.id, {
+                      bonus: Number(bonusInputs[row.rep.id] || 0),
+                    })
+                  }
+                  className="field-input"
+                />
               </FieldCard>
 
               <FieldCard label="Advances">
@@ -657,7 +674,9 @@ const totalPremium = repDeals.reduce(
 
               <button
                 onClick={() =>
-                  setExpandedRepId((prev) => (prev === row.rep.id ? null : row.rep.id))
+                  setExpandedRepId((prev) =>
+                    prev === row.rep.id ? null : row.rep.id
+                  )
                 }
                 className="rounded-2xl border border-white/10 bg-white/[0.03] px-5 py-3 text-sm font-medium text-slate-300 transition hover:bg-white/[0.06]"
               >
@@ -668,22 +687,27 @@ const totalPremium = repDeals.reduce(
             {expandedRepId === row.rep.id ? (
               <div className="mt-8 space-y-8">
                 <DealTableSection
-                  title="Paid In This Payroll Period"
-                  subtitle="These deals are included in this payroll calculation."
-                  emptyText="No paid deals for this rep in the selected payroll period."
-                  columns={9}
+                  title="Paid / Recovered In This Payroll Period"
+                  subtitle="These deals are shown for payroll review. Cancelled deals remain visible but are deducted through first-week cancels."
+                  isUnpaid={false}
                 >
                   {row.repDeals.length === 0 ? (
-                    <EmptyRow colSpan={9} text="No paid deals for this rep in the selected payroll period." />
+                    <EmptyRow
+                      colSpan={9}
+                      text="No paid or recovered deals for this rep in the selected payroll period."
+                    />
                   ) : (
                     row.repDeals.map((deal) => {
                       const status = deal.status ?? "active";
                       const cancelled = status === "cancelled";
+                      const recovered = status === "recovered";
 
                       return (
                         <tr
                           key={deal.id}
-                          className="border-b border-white/5 transition-colors hover:bg-white/[0.03]"
+                          className={`border-b border-white/5 transition-colors hover:bg-white/[0.03] ${
+                            cancelled ? "bg-red-500/[0.04]" : recovered ? "bg-emerald-500/[0.04]" : ""
+                          }`}
                         >
                           <td className="px-4 py-5 text-[15px] text-slate-100">
                             {deal.member_id || "—"}
@@ -692,7 +716,7 @@ const totalPremium = repDeals.reduce(
                             {deal.deal_date}
                           </td>
                           <td className="px-4 py-5 text-[15px] text-slate-100">
-                            {deal.payment_date || "—"}
+                            {deal.payment_date || deal.recovered_date || "—"}
                           </td>
                           <td className="px-4 py-5 text-[15px] font-medium text-white">
                             {getPlanName(deal.plan_id)}
@@ -709,15 +733,21 @@ const totalPremium = repDeals.reduce(
                           <td className="px-4 py-5">
                             <select
                               value={status}
-                              onChange={(e) => updateDealStatus(deal.id, e.target.value)}
+                              onChange={(e) =>
+                                updateDealStatus(deal.id, e.target.value)
+                              }
                               className={`w-full rounded-2xl border px-3 py-2 text-[15px] outline-none transition ${
                                 cancelled
                                   ? "border-red-500/20 bg-red-500/10 text-red-300"
+                                  : recovered
+                                  ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
                                   : "border-white/10 bg-slate-900 text-white focus:border-slate-400"
                               }`}
                             >
                               <option value="active">Active</option>
+                              <option value="pending">Pending</option>
                               <option value="cancelled">Cancelled</option>
+                              <option value="recovered">Recovered</option>
                             </select>
                           </td>
                           <td className="px-4 py-5 text-[15px] text-slate-100">
@@ -732,8 +762,7 @@ const totalPremium = repDeals.reduce(
                 <DealTableSection
                   title="Unpaid / Post-Dated Deals"
                   subtitle="These deals are not in payroll yet because payment has not cleared."
-                  emptyText="No unpaid deals for this rep."
-                  columns={9}
+                  isUnpaid
                 >
                   {row.unpaidDeals.length === 0 ? (
                     <EmptyRow colSpan={9} text="No unpaid deals for this rep." />
@@ -888,18 +917,14 @@ function FieldCard({
 function DealTableSection({
   title,
   subtitle,
-  emptyText,
-  columns,
+  isUnpaid,
   children,
 }: {
   title: string;
   subtitle: string;
-  emptyText: string;
-  columns: number;
+  isUnpaid: boolean;
   children: React.ReactNode;
 }) {
-  const isUnpaid = title.toLowerCase().includes("unpaid");
-
   return (
     <div>
       <div className="mb-4 flex flex-col gap-1">
@@ -913,20 +938,16 @@ function DealTableSection({
             <thead>
               <tr className="border-b border-white/10 bg-white/[0.03] text-left text-sm uppercase tracking-[0.18em] text-slate-400">
                 <th className="px-4 py-4 font-medium">Member ID</th>
-                <th className="px-4 py-4 font-medium">
-                  {isUnpaid ? "Sold Date" : "Sold Date"}
-                </th>
+                <th className="px-4 py-4 font-medium">Sold Date</th>
                 {!isUnpaid ? (
-                  <th className="px-4 py-4 font-medium">Paid Date</th>
+                  <th className="px-4 py-4 font-medium">Paid/Recovered Date</th>
                 ) : null}
                 <th className="px-4 py-4 font-medium">Plan Type</th>
                 <th className="px-4 py-4 text-right font-medium">Health Premium</th>
                 <th className="px-4 py-4 text-right font-medium">Add On Premium</th>
                 <th className="px-4 py-4 text-right font-medium">Total Premium</th>
                 <th className="px-4 py-4 font-medium">Status</th>
-                <th className="px-4 py-4 font-medium">
-                  {isUnpaid ? "Lead Source" : "Lead Source"}
-                </th>
+                <th className="px-4 py-4 font-medium">Lead Source</th>
                 {isUnpaid ? (
                   <th className="px-4 py-4 text-right font-medium">Action</th>
                 ) : null}
