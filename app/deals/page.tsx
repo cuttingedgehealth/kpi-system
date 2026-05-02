@@ -259,8 +259,7 @@ export default function DealsPage() {
                   <th className="px-3 py-4">Add-On</th>
                   <th className="px-3 py-4">Total</th>
                   <th className="px-3 py-4">Status</th>
-                  <th className="px-3 py-4 text-right">Save</th>
-                </tr>
+                              </tr>
               </thead>
 
               <tbody>
@@ -421,27 +420,13 @@ export default function DealsPage() {
                         </select>
                       </td>
 
-                      <td className="px-3 py-3 text-right">
-                        {savingIds[deal.id] ? (
-                          <span className="text-xs text-slate-400">Saving...</span>
-                        ) : savedIds[deal.id] ? (
-                          <span className="text-xs text-emerald-400">Saved</span>
-                        ) : (
-                          <button
-                            onClick={() => saveCurrent(deal.id)}
-                            className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-xs font-medium text-slate-300 transition hover:bg-white/[0.06]"
-                          >
-                            Save
-                          </button>
-                        )}
-                      </td>
-                    </tr>
+                                        </tr>
                   );
                 })}
 
                 {filteredDeals.length === 0 ? (
                   <tr>
-                    <td colSpan={12} className="px-4 py-10 text-center text-slate-500">
+                    <td colSpan={11} className="px-4 py-10 text-center text-slate-500">
                       No deals found.
                     </td>
                   </tr>
