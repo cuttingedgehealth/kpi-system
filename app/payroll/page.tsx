@@ -246,7 +246,13 @@ export default function PayrollPage() {
     };
 
     if (nextStatus === "recovered") {
+      updates.status = "cancelled";
       updates.recovered_date = todayString();
+      updates.payroll_paid = false;
+    }
+
+    if (nextStatus !== "recovered") {
+      updates.recovered_date = null;
     }
 
     if (nextStatus === "cancelled" && existingDeal?.payment_date) {
@@ -337,34 +343,33 @@ export default function PayrollPage() {
 
   const payrollRows = useMemo(() => {
     return reps.map((rep) => {
-      const repDeals = deals.filter((deal) => {
+      const paidPeriodDeals = deals.filter((deal) => {
         if (deal.rep_id !== rep.id) return false;
-
-        const paidInPeriod = inRange(deal.payment_date, startDate, endDate);
-
-        const recoveredInPeriod =
-          (deal.status ?? "active") === "recovered" &&
-          !deal.payroll_paid &&
-          inRange(deal.recovered_date, startDate, endDate);
-
-        return paidInPeriod || recoveredInPeriod;
+        return inRange(deal.payment_date, startDate, endDate);
       });
 
-      const cancelledDeals = repDeals.filter(
+      const recoveredPeriodDeals = deals.filter((deal) => {
+        if (deal.rep_id !== rep.id) return false;
+        return inRange(deal.recovered_date, startDate, endDate);
+      });
+
+      const uniqueDeals = new Map<string, Deal>();
+
+      for (const deal of paidPeriodDeals) {
+        uniqueDeals.set(deal.id, deal);
+      }
+
+      for (const deal of recoveredPeriodDeals) {
+        uniqueDeals.set(deal.id, deal);
+      }
+
+      const repDeals = Array.from(uniqueDeals.values());
+
+      const recoveredDeals = recoveredPeriodDeals;
+
+      const cancelledDeals = paidPeriodDeals.filter(
         (deal) => (deal.status ?? "active") === "cancelled"
       );
-
-      const payableDeals = repDeals.filter((deal) => {
-        const status = deal.status ?? "active";
-
-        if (status === "cancelled") return false;
-
-        if (status === "recovered") {
-          return !deal.payroll_paid;
-        }
-
-        return status === "active" || status === "pending";
-      });
 
       const unpaidDeals = deals.filter(
         (deal) =>
@@ -373,9 +378,17 @@ export default function PayrollPage() {
           (deal.status ?? "pending") !== "cancelled"
       );
 
-      const totalDeals = payableDeals.length;
+      const writtenDeals = repDeals.filter((deal) => {
+        const isRecoveredInPeriod = inRange(deal.recovered_date, startDate, endDate);
 
-      const totalPremium = payableDeals.reduce(
+        if (isRecoveredInPeriod) return true;
+
+        return (deal.status ?? "active") !== "cancelled";
+      });
+
+      const totalDeals = writtenDeals.length;
+
+      const totalPremium = writtenDeals.reduce(
         (sum, deal) => sum + Number(deal.total_premium || 0),
         0
       );
@@ -425,7 +438,7 @@ export default function PayrollPage() {
       return {
         rep,
         repDeals,
-        payableDeals,
+        recoveredDeals,
         cancelledDeals,
         unpaidDeals,
         totalDeals,
@@ -477,14 +490,14 @@ export default function PayrollPage() {
             </h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400 sm:text-base">
               Payroll is tied to cleared payment dates. Cancelled deals remain visible
-              but reduce commission through first-week cancels. Recovered deals only pay
-              if they were not previously paid.
+              in the original period. Recovered deals appear in the recovery week as a
+              separate payroll event.
             </p>
           </div>
 
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <HeroMetric label="Paid Deals" value={String(totals.totalDeals)} />
-            <HeroMetric label="Paid Premium" value={currency(totals.totalPremium)} />
+            <HeroMetric label="Payable Deals" value={String(totals.totalDeals)} />
+            <HeroMetric label="Payable Premium" value={currency(totals.totalPremium)} />
             <HeroMetric label="1st Week Cancels" value={currency(totals.totalCancels)} />
             <HeroMetric label="Commission Owed" value={currency(totals.totalOwed)} />
           </div>
@@ -688,7 +701,7 @@ export default function PayrollPage() {
               <div className="mt-8 space-y-8">
                 <DealTableSection
                   title="Paid / Recovered In This Payroll Period"
-                  subtitle="These deals are shown for payroll review. Cancelled deals remain visible but are deducted through first-week cancels."
+                  subtitle="Old cancelled deals stay cancelled in the original period. Recovered deals show in the week they were recovered."
                   isUnpaid={false}
                 >
                   {row.repDeals.length === 0 ? (
@@ -698,15 +711,28 @@ export default function PayrollPage() {
                     />
                   ) : (
                     row.repDeals.map((deal) => {
-                      const status = deal.status ?? "active";
+                      const isRecoveryInThisPeriod = inRange(
+                        deal.recovered_date,
+                        startDate,
+                        endDate
+                      );
+
+                      const status = isRecoveryInThisPeriod
+                        ? "recovered"
+                        : deal.status ?? "active";
+
                       const cancelled = status === "cancelled";
                       const recovered = status === "recovered";
 
                       return (
                         <tr
-                          key={deal.id}
+                          key={`${deal.id}-${status}`}
                           className={`border-b border-white/5 transition-colors hover:bg-white/[0.03] ${
-                            cancelled ? "bg-red-500/[0.04]" : recovered ? "bg-emerald-500/[0.04]" : ""
+                            cancelled
+                              ? "bg-red-500/[0.04]"
+                              : recovered
+                              ? "bg-emerald-500/[0.04]"
+                              : ""
                           }`}
                         >
                           <td className="px-4 py-5 text-[15px] text-slate-100">
@@ -716,7 +742,9 @@ export default function PayrollPage() {
                             {deal.deal_date}
                           </td>
                           <td className="px-4 py-5 text-[15px] text-slate-100">
-                            {deal.payment_date || deal.recovered_date || "—"}
+                            {isRecoveryInThisPeriod
+                              ? deal.recovered_date || "—"
+                              : deal.payment_date || "—"}
                           </td>
                           <td className="px-4 py-5 text-[15px] font-medium text-white">
                             {getPlanName(deal.plan_id)}

@@ -163,7 +163,6 @@ export default function DealsPage() {
 
   const filteredDeals = useMemo(() => {
     const q = search.toLowerCase().trim();
-
     if (!q) return deals;
 
     return deals.filter((deal) => {
@@ -420,14 +419,22 @@ export default function DealsPage() {
 
                       <td className="px-3 py-3">
                         <select
-                          value={deal.status ?? "active"}
+                          value={deal.recovered_date ? "recovered" : deal.status ?? "active"}
                           onChange={(e) => {
                             const nextStatus = e.target.value;
+
+                            if (nextStatus === "recovered") {
+                              updateAndSave(deal.id, {
+                                status: "cancelled",
+                                recovered_date: todayString(),
+                                payroll_paid: false,
+                              });
+                              return;
+                            }
+
                             updateAndSave(deal.id, {
                               status: nextStatus,
-                              ...(nextStatus === "recovered"
-                                ? { recovered_date: todayString() }
-                                : {}),
+                              recovered_date: null,
                             });
                           }}
                           className="table-input w-28"
