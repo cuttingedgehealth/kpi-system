@@ -8,6 +8,7 @@ type Source = {
   id: string;
   name: string;
   type: "inbound" | "data";
+  base_cpl: number;
   active: boolean;
 };
 
@@ -19,6 +20,15 @@ type Deal = {
   source_id: string | null;
   total_premium: number;
   status: string | null;
+};
+
+type DailyMetric = {
+  id: string;
+  metric_date: string;
+  source_id: string;
+  quantity: number;
+  cpl_override: number | null;
+  spend_override: number | null;
 };
 
 function todayString() {
@@ -46,6 +56,7 @@ function isPostDate(deal: Deal) {
 export default function ReportsPage() {
   const [sources, setSources] = useState<Source[]>([]);
   const [deals, setDeals] = useState<Deal[]>([]);
+  const [dailyMetrics, setDailyMetrics] = useState<DailyMetric[]>([]);
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
   const [startDate, setStartDate] = useState(todayString());
   const [endDate, setEndDate] = useState(todayString());
@@ -58,7 +69,7 @@ export default function ReportsPage() {
 
     const { data: sourceData, error: sourceError } = await supabase
       .from("sources")
-      .select("id,name,type,active")
+      .select("id,name,type,base_cpl,active")
       .eq("office_id", OFFICE_ID)
       .eq("active", true)
       .order("name", { ascending: true });
@@ -68,13 +79,20 @@ export default function ReportsPage() {
       .select("id,deal_date,payment_date,phone_number,source_id,total_premium,status")
       .eq("office_id", OFFICE_ID);
 
+    const { data: metricData, error: metricError } = await supabase
+      .from("daily_metrics")
+      .select("id,metric_date,source_id,quantity,cpl_override,spend_override")
+      .eq("office_id", OFFICE_ID);
+
     if (sourceError) setErrorText(`Source load error: ${sourceError.message}`);
     if (dealError) setErrorText((prev) => prev || `Deal load error: ${dealError.message}`);
+    if (metricError) setErrorText((prev) => prev || `Metric load error: ${metricError.message}`);
 
     const sourceList = (sourceData ?? []) as Source[];
 
     setSources(sourceList);
     setDeals((dealData ?? []) as Deal[]);
+    setDailyMetrics((metricData ?? []) as DailyMetric[]);
     setSelectedSourceIds(sourceList.map((source) => source.id));
     setLoading(false);
   }
@@ -104,6 +122,12 @@ export default function ReportsPage() {
     return sources.find((source) => source.id === sourceId)?.name ?? "—";
   }
 
+  function getMetricSpend(metric: DailyMetric) {
+    const source = sources.find((s) => s.id === metric.source_id);
+    const effectiveCpl = metric.cpl_override ?? source?.base_cpl ?? 0;
+    return metric.spend_override ?? Number(metric.quantity || 0) * effectiveCpl;
+  }
+
   const filteredDeals = useMemo(() => {
     return deals
       .filter((deal) => {
@@ -119,6 +143,18 @@ export default function ReportsPage() {
       })
       .sort((a, b) => a.deal_date.localeCompare(b.deal_date));
   }, [deals, selectedSourceIds, startDate, endDate]);
+
+  const filteredMetrics = useMemo(() => {
+    return dailyMetrics.filter((metric) => {
+      const sourceMatch =
+        selectedSourceIds.length > 0 && selectedSourceIds.includes(metric.source_id);
+
+      const dateMatch =
+        metric.metric_date >= startDate && metric.metric_date <= endDate;
+
+      return sourceMatch && dateMatch;
+    });
+  }, [dailyMetrics, selectedSourceIds, startDate, endDate]);
 
   const reportStats = useMemo(() => {
     const dealCount = filteredDeals.length;
@@ -139,6 +175,14 @@ export default function ReportsPage() {
     const postDatePct = dealCount > 0 ? (postDateCount / dealCount) * 100 : 0;
     const sameDayPct = dealCount > 0 ? (sameDayCount / dealCount) * 100 : 0;
 
+    const totalSpend = filteredMetrics.reduce(
+      (sum, metric) => sum + getMetricSpend(metric),
+      0
+    );
+
+    const cac = dealCount > 0 ? totalSpend / dealCount : 0;
+    const ps = totalSpend > 0 ? totalPremium / totalSpend : 0;
+
     return {
       dealCount,
       totalPremium,
@@ -147,38 +191,57 @@ export default function ReportsPage() {
       sameDayCount,
       postDatePct,
       sameDayPct,
+      totalSpend,
+      cac,
+      ps,
     };
-  }, [filteredDeals]);
+  }, [filteredDeals, filteredMetrics, sources]);
 
   const sourceBreakdown = useMemo(() => {
     return selectedSourceIds
       .map((sourceId) => {
         const source = sources.find((s) => s.id === sourceId);
         const sourceDeals = filteredDeals.filter((deal) => deal.source_id === sourceId);
+        const sourceMetrics = filteredMetrics.filter(
+          (metric) => metric.source_id === sourceId
+        );
 
         const dealCount = sourceDeals.length;
         const premium = sourceDeals.reduce(
           (sum, deal) => sum + Number(deal.total_premium || 0),
           0
         );
+
+        const spend = sourceMetrics.reduce(
+          (sum, metric) => sum + getMetricSpend(metric),
+          0
+        );
+
         const avgPremium = dealCount > 0 ? premium / dealCount : 0;
+        const cac = dealCount > 0 ? spend / dealCount : 0;
+        const ps = spend > 0 ? premium / spend : 0;
+
         const postDateCount = sourceDeals.filter(
           (deal) => isPostDate(deal) === "Yes"
         ).length;
+
         const postDatePct = dealCount > 0 ? (postDateCount / dealCount) * 100 : 0;
 
         return {
           source,
           dealCount,
           premium,
+          spend,
           avgPremium,
+          cac,
+          ps,
           postDateCount,
           postDatePct,
         };
       })
       .filter((row) => row.source)
       .sort((a, b) => b.premium - a.premium);
-  }, [filteredDeals, selectedSourceIds, sources]);
+  }, [filteredDeals, filteredMetrics, selectedSourceIds, sources]);
 
   function downloadCsv() {
     const header = ["Phone Number", "Sold Date", "Source", "Premium", "Post Date"];
@@ -231,8 +294,8 @@ export default function ReportsPage() {
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <HeroMetric label="Deals" value={String(reportStats.dealCount)} />
             <HeroMetric label="Premium" value={currency(reportStats.totalPremium)} />
-            <HeroMetric label="Avg Premium" value={currency(reportStats.avgPremium)} />
-            <HeroMetric label="Post Date %" value={percent(reportStats.postDatePct)} />
+            <HeroMetric label="CAC" value={currency(reportStats.cac)} />
+            <HeroMetric label="P/S" value={`${reportStats.ps.toFixed(2)}x`} />
           </div>
         </div>
       </section>
@@ -288,13 +351,16 @@ export default function ReportsPage() {
           </div>
         </div>
 
-        <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+        <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-9">
           <KpiTile label="Deals" value={String(reportStats.dealCount)} />
           <KpiTile label="Premium" value={currency(reportStats.totalPremium)} />
           <KpiTile label="Avg Premium" value={currency(reportStats.avgPremium)} />
           <KpiTile label="Post Dates" value={String(reportStats.postDateCount)} />
           <KpiTile label="Post Date %" value={percent(reportStats.postDatePct)} />
           <KpiTile label="Same Day %" value={percent(reportStats.sameDayPct)} />
+          <KpiTile label="Spend" value={currency(reportStats.totalSpend)} />
+          <KpiTile label="CAC" value={currency(reportStats.cac)} />
+          <KpiTile label="P/S" value={`${reportStats.ps.toFixed(2)}x`} />
         </div>
 
         <div className="mb-6 rounded-2xl border border-white/10 bg-slate-900/40 p-4">
@@ -352,15 +418,17 @@ export default function ReportsPage() {
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[900px] text-[16px]">
+            <table className="w-full min-w-[1100px] text-[16px]">
               <thead>
                 <tr className="border-b border-white/10 bg-white/[0.03] text-left text-sm uppercase tracking-[0.18em] text-slate-400">
                   <th className="px-4 py-4 font-medium">Source</th>
                   <th className="px-4 py-4 font-medium">Type</th>
                   <th className="px-4 py-4 text-right font-medium">Deals</th>
                   <th className="px-4 py-4 text-right font-medium">Premium</th>
+                  <th className="px-4 py-4 text-right font-medium">Spend</th>
+                  <th className="px-4 py-4 text-right font-medium">CAC</th>
+                  <th className="px-4 py-4 text-right font-medium">P/S</th>
                   <th className="px-4 py-4 text-right font-medium">Avg Premium</th>
-                  <th className="px-4 py-4 text-right font-medium">Post Dates</th>
                   <th className="px-4 py-4 text-right font-medium">Post Date %</th>
                 </tr>
               </thead>
@@ -383,10 +451,16 @@ export default function ReportsPage() {
                       {currency(row.premium)}
                     </td>
                     <td className="px-4 py-5 text-right text-slate-100">
-                      {currency(row.avgPremium)}
+                      {currency(row.spend)}
                     </td>
                     <td className="px-4 py-5 text-right text-slate-100">
-                      {row.postDateCount}
+                      {row.dealCount > 0 ? currency(row.cac) : "—"}
+                    </td>
+                    <td className="px-4 py-5 text-right font-semibold text-white">
+                      {row.spend > 0 ? `${row.ps.toFixed(2)}x` : "—"}
+                    </td>
+                    <td className="px-4 py-5 text-right text-slate-100">
+                      {currency(row.avgPremium)}
                     </td>
                     <td className="px-4 py-5 text-right text-slate-100">
                       {percent(row.postDatePct)}
@@ -396,7 +470,7 @@ export default function ReportsPage() {
 
                 {sourceBreakdown.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-4 py-10 text-center text-slate-500">
+                    <td colSpan={9} className="px-4 py-10 text-center text-slate-500">
                       No selected source data for this date range.
                     </td>
                   </tr>
