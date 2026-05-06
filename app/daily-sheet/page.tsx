@@ -58,6 +58,9 @@ type Deal = {
   limited_premium: number;
   addon_premium: number;
   total_premium: number;
+  collected_premium: number | null;
+  remaining_balance: number | null;
+  is_partial: boolean | null;
   aca_sold: boolean;
 };
 
@@ -67,6 +70,15 @@ function currency(value: number) {
 
 function todayString() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function recognizedPremium(deal: Deal) {
+  const collected = Number(deal.collected_premium || 0);
+
+  if (collected > 0) return collected;
+  if (!deal.payment_date) return 0;
+
+  return Number(deal.total_premium || 0);
 }
 
 export default function DailySheetPage() {
@@ -89,8 +101,10 @@ export default function DailySheetPage() {
     plan_id: "",
     limited_premium: "",
     addon_premium: "",
+    collected_premium: "",
     aca_sold: false,
     paid_today: true,
+    is_partial: false,
   });
 
   async function loadData(targetDate: string) {
@@ -110,11 +124,10 @@ export default function DailySheetPage() {
     }
 
     const sourceList = ((sourceData ?? []) as Source[]).sort((a, b) => {
-      if (a.type !== b.type) {
-        return a.type.localeCompare(b.type);
-      }
+      if (a.type !== b.type) return a.type.localeCompare(b.type);
       return a.name.localeCompare(b.name);
     });
+
     setSources(sourceList);
 
     const { data: repData, error: repError } = await supabase
@@ -310,7 +323,37 @@ export default function DailySheetPage() {
     const limited = Number(dealForm.limited_premium || 0);
     const addon = Number(dealForm.addon_premium || 0);
     const total = limited + addon;
-    const paymentDate = dealForm.paid_today ? todayString() : null;
+
+    if (total <= 0) {
+      setErrorText("Please enter a premium amount.");
+      return;
+    }
+
+    const isPartial = dealForm.is_partial;
+    const collected = isPartial
+      ? Number(dealForm.collected_premium || 0)
+      : dealForm.paid_today
+        ? total
+        : 0;
+
+    if (isPartial && collected <= 0) {
+      setErrorText("Please enter the amount collected today.");
+      return;
+    }
+
+    if (isPartial && collected >= total) {
+      setErrorText("Partial pay must be less than the full stack premium.");
+      return;
+    }
+
+    const remaining = Math.max(total - collected, 0);
+    const paymentDate = dealForm.paid_today || isPartial ? todayString() : null;
+
+    const status = isPartial
+      ? "partial_pay"
+      : paymentDate
+        ? "active"
+        : "pending";
 
     const { error } = await supabase.from("deals").insert({
       office_id: OFFICE_ID,
@@ -324,8 +367,11 @@ export default function DailySheetPage() {
       limited_premium: limited,
       addon_premium: addon,
       total_premium: total,
+      collected_premium: collected,
+      remaining_balance: remaining,
+      is_partial: isPartial,
       aca_sold: dealForm.aca_sold,
-      status: paymentDate ? "active" : "pending",
+      status,
     });
 
     if (error) {
@@ -341,9 +387,12 @@ export default function DailySheetPage() {
       plan_id: "",
       limited_premium: "",
       addon_premium: "",
+      collected_premium: "",
       aca_sold: false,
       paid_today: true,
+      is_partial: false,
     });
+
     setDealModalOpen(false);
     loadData(date);
   }
@@ -359,6 +408,17 @@ export default function DailySheetPage() {
   function getPaidDealsForSource(sourceId: string) {
     return deals.filter((d) => d.source_id === sourceId && d.payment_date);
   }
+
+  const fullStackPremium =
+    Number(dealForm.limited_premium || 0) + Number(dealForm.addon_premium || 0);
+
+  const collectedToday = dealForm.is_partial
+    ? Number(dealForm.collected_premium || 0)
+    : dealForm.paid_today
+      ? fullStackPremium
+      : 0;
+
+  const remainingBalance = Math.max(fullStackPremium - collectedToday, 0);
 
   const dailyTotals = useMemo(() => {
     let totalLeads = 0;
@@ -385,7 +445,7 @@ export default function DailySheetPage() {
     }
 
     for (const deal of paidDeals) {
-      totalPremium += Number(deal.total_premium || 0);
+      totalPremium += recognizedPremium(deal);
       if (deal.aca_sold) acaWrappedDeals += 1;
     }
 
@@ -530,7 +590,7 @@ export default function DailySheetPage() {
                 </div>
                 <h2 className="text-3xl font-semibold tracking-tight">Enter Deal</h2>
                 <p className="mt-2 text-sm text-slate-400">
-                  Sold date stays tied to this day. Paid deals count only after payment clears.
+                  Partial pays count as one deal today, but only collected premium hits revenue.
                 </p>
               </div>
               <button
@@ -572,16 +632,16 @@ export default function DailySheetPage() {
               </Field>
 
               <Field label="Phone Number">
-  <input
-    type="text"
-    value={dealForm.phone_number}
-    onChange={(e) =>
-      setDealForm((prev) => ({ ...prev, phone_number: e.target.value }))
-    }
-    className="field-input"
-    placeholder="Enter phone number"
-  />
-</Field>
+                <input
+                  type="text"
+                  value={dealForm.phone_number}
+                  onChange={(e) =>
+                    setDealForm((prev) => ({ ...prev, phone_number: e.target.value }))
+                  }
+                  className="field-input"
+                  placeholder="Enter phone number"
+                />
+              </Field>
 
               <Field label="Plan">
                 <select
@@ -647,17 +707,43 @@ export default function DailySheetPage() {
                 />
               </Field>
 
-              <Field label="Total Premium">
+              <Field label="Full Stack Premium">
                 <input
                   type="number"
-                  value={
-                    Number(dealForm.limited_premium || 0) +
-                    Number(dealForm.addon_premium || 0)
-                  }
+                  value={fullStackPremium}
                   readOnly
                   className="field-input field-input-readonly"
                 />
               </Field>
+
+              {dealForm.is_partial ? (
+                <>
+                  <Field label="Collected Today">
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={dealForm.collected_premium}
+                      onChange={(e) =>
+                        setDealForm((prev) => ({
+                          ...prev,
+                          collected_premium: e.target.value,
+                        }))
+                      }
+                      className="field-input"
+                      placeholder="Example: 290"
+                    />
+                  </Field>
+
+                  <Field label="Remaining Balance">
+                    <input
+                      type="number"
+                      value={remainingBalance}
+                      readOnly
+                      className="field-input field-input-readonly"
+                    />
+                  </Field>
+                </>
+              ) : null}
 
               <div className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-4">
                 <div className="mb-3 text-xs uppercase tracking-[0.18em] text-slate-500">
@@ -682,15 +768,44 @@ export default function DailySheetPage() {
                       id="paid_today"
                       type="checkbox"
                       checked={dealForm.paid_today}
+                      disabled={dealForm.is_partial}
                       onChange={(e) =>
                         setDealForm((prev) => ({ ...prev, paid_today: e.target.checked }))
                       }
-                      className="h-4 w-4 rounded border-white/20 bg-slate-900"
+                      className="h-4 w-4 rounded border-white/20 bg-slate-900 disabled:opacity-50"
                     />
                     Paid today?
                   </label>
+
+                  <label className="flex items-center gap-3 text-[15px] text-slate-200">
+                    <input
+                      id="is_partial"
+                      type="checkbox"
+                      checked={dealForm.is_partial}
+                      onChange={(e) =>
+                        setDealForm((prev) => ({
+                          ...prev,
+                          is_partial: e.target.checked,
+                          paid_today: e.target.checked ? true : prev.paid_today,
+                          collected_premium: e.target.checked
+                            ? prev.collected_premium
+                            : "",
+                        }))
+                      }
+                      className="h-4 w-4 rounded border-white/20 bg-slate-900"
+                    />
+                    Partial Pay?
+                  </label>
                 </div>
               </div>
+
+              {dealForm.is_partial ? (
+                <div className="rounded-2xl border border-blue-500/20 bg-blue-500/10 px-4 py-4 text-sm leading-6 text-blue-100 md:col-span-2">
+                  This will save as <strong>1 sale today</strong>, count only{" "}
+                  <strong>{currency(collectedToday)}</strong> as premium collected, and leave{" "}
+                  <strong>{currency(remainingBalance)}</strong> pending.
+                </div>
+              ) : null}
             </div>
 
             <div className="mt-6 flex justify-end gap-3">
@@ -843,7 +958,7 @@ function SourceGroupTable({
                 const sourceDeals = getPaidDealsForSource(source.id);
                 const sales = sourceDeals.length;
                 const premium = sourceDeals.reduce(
-                  (sum, d) => sum + Number(d.total_premium || 0),
+                  (sum, d) => sum + recognizedPremium(d),
                   0
                 );
                 const conversion = quantity > 0 ? (sales / quantity) * 100 : 0;

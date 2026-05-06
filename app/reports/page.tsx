@@ -19,6 +19,11 @@ type Deal = {
   phone_number: string | null;
   source_id: string | null;
   total_premium: number;
+  collected_premium: number | null;
+  remaining_balance: number | null;
+  last_payment_amount: number | null;
+  balance_paid_date: string | null;
+  is_partial: boolean | null;
   status: string | null;
 };
 
@@ -53,6 +58,15 @@ function isPostDate(deal: Deal) {
   return deal.payment_date !== deal.deal_date ? "Yes" : "No";
 }
 
+function getRecognizedPremium(deal: Deal) {
+  const collected = Number(deal.collected_premium || 0);
+
+  if (collected > 0) return collected;
+  if (!deal.payment_date) return 0;
+
+  return Number(deal.total_premium || 0);
+}
+
 export default function ReportsPage() {
   const [sources, setSources] = useState<Source[]>([]);
   const [deals, setDeals] = useState<Deal[]>([]);
@@ -76,7 +90,7 @@ export default function ReportsPage() {
 
     const { data: dealData, error: dealError } = await supabase
       .from("deals")
-      .select("id,deal_date,payment_date,phone_number,source_id,total_premium,status")
+      .select("id,deal_date,payment_date,phone_number,source_id,total_premium,collected_premium,remaining_balance,last_payment_amount,balance_paid_date,is_partial,status")
       .eq("office_id", OFFICE_ID);
 
     const { data: metricData, error: metricError } = await supabase
@@ -160,7 +174,7 @@ export default function ReportsPage() {
     const dealCount = filteredDeals.length;
 
     const totalPremium = filteredDeals.reduce(
-      (sum, deal) => sum + Number(deal.total_premium || 0),
+      (sum, deal) => sum + getRecognizedPremium(deal),
       0
     );
 
@@ -208,7 +222,7 @@ export default function ReportsPage() {
 
         const dealCount = sourceDeals.length;
         const premium = sourceDeals.reduce(
-          (sum, deal) => sum + Number(deal.total_premium || 0),
+          (sum, deal) => sum + getRecognizedPremium(deal),
           0
         );
 
@@ -250,7 +264,7 @@ export default function ReportsPage() {
       deal.phone_number || "",
       deal.deal_date,
       getSourceName(deal.source_id),
-      Number(deal.total_premium || 0).toFixed(2),
+      getRecognizedPremium(deal).toFixed(2),
       isPostDate(deal),
     ]);
 
@@ -513,7 +527,7 @@ export default function ReportsPage() {
                       {getSourceName(deal.source_id)}
                     </td>
                     <td className="px-4 py-5 text-right font-medium text-white">
-                      {currency(Number(deal.total_premium || 0))}
+                      {currency(getRecognizedPremium(deal))}
                     </td>
                     <td className="px-4 py-5 text-slate-100">{isPostDate(deal)}</td>
                   </tr>

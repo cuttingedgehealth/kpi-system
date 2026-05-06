@@ -16,6 +16,7 @@ type Deal = {
   deal_date: string;
   payment_date: string | null;
   recovered_date: string | null;
+  balance_paid_date: string | null;
   payroll_paid: boolean;
   rep_id: string | null;
   member_id: string | null;
@@ -25,7 +26,18 @@ type Deal = {
   limited_premium: number;
   addon_premium: number;
   total_premium: number;
+  collected_premium: number | null;
+  remaining_balance: number | null;
+  last_payment_amount: number | null;
+  is_partial: boolean | null;
   aca_sold: boolean;
+};
+
+type PayrollDeal = Deal & {
+  payroll_event: "initial" | "balance" | "recovered";
+  payroll_premium: number;
+  payroll_date: string | null;
+  display_status: string;
 };
 
 type Plan = {
@@ -82,6 +94,32 @@ function inRange(dateStr: string | null, start: string, end: string) {
 
 function todayString() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function initialPayrollPremium(deal: Deal) {
+  const collected = Number(deal.collected_premium || 0);
+
+  if ((deal.is_partial || deal.status === "partial_pay") && collected > 0) {
+    return collected;
+  }
+
+  if (collected > 0) return collected;
+
+  return Number(deal.total_premium || 0);
+}
+
+function balancePayrollPremium(deal: Deal) {
+  const lastPayment = Number(deal.last_payment_amount || 0);
+  if (lastPayment > 0) return lastPayment;
+
+  return Math.max(
+    Number(deal.total_premium || 0) - Number(deal.collected_premium || 0),
+    0
+  );
+}
+
+function fullStackPremium(deal: Deal) {
+  return Number(deal.total_premium || 0);
 }
 
 export default function PayrollPage() {
@@ -237,10 +275,54 @@ export default function PayrollPage() {
   async function updateDealStatus(dealId: string, nextStatus: string) {
     const existingDeal = deals.find((deal) => deal.id === dealId);
 
+    if (!existingDeal) return;
+
+    const currentRemaining = Number(existingDeal.remaining_balance || 0);
+    const currentCollected = Number(existingDeal.collected_premium || 0);
+    const currentTotal = Number(existingDeal.total_premium || 0);
+    const isCompletingPartial =
+      nextStatus === "active" &&
+      (existingDeal.status === "partial_pay" || existingDeal.is_partial) &&
+      currentRemaining > 0;
+
+    if (isCompletingPartial) {
+      const paidDate = todayString();
+      const updates = {
+        status: "active",
+        is_partial: false,
+        collected_premium: currentTotal,
+        remaining_balance: 0,
+        last_payment_amount: currentRemaining,
+        balance_paid_date: paidDate,
+        payment_date: existingDeal.payment_date ?? paidDate,
+        recovered_date: null,
+      };
+
+      const { error } = await supabase
+        .from("deals")
+        .update(updates)
+        .eq("id", dealId);
+
+      if (error) {
+        setErrorText(`Status update error: ${error.message}`);
+        return;
+      }
+
+      setDeals((prev) =>
+        prev.map((deal) => (deal.id === dealId ? { ...deal, ...updates } : deal))
+      );
+      return;
+    }
+
     const updates: {
       status: string;
       recovered_date?: string | null;
       payroll_paid?: boolean;
+      is_partial?: boolean;
+      remaining_balance?: number;
+      collected_premium?: number;
+      last_payment_amount?: number;
+      balance_paid_date?: string | null;
     } = {
       status: nextStatus,
     };
@@ -275,14 +357,23 @@ export default function PayrollPage() {
   }
 
   async function markDealPaidToday(dealId: string) {
+    const existingDeal = deals.find((deal) => deal.id === dealId);
     const paidDate = todayString();
+    const total = Number(existingDeal?.total_premium || 0);
+
+    const updates = {
+      payment_date: paidDate,
+      status: "active",
+      collected_premium: total,
+      remaining_balance: 0,
+      last_payment_amount: total,
+      balance_paid_date: null,
+      is_partial: false,
+    };
 
     const { error } = await supabase
       .from("deals")
-      .update({
-        payment_date: paidDate,
-        status: "active",
-      })
+      .update(updates)
       .eq("id", dealId);
 
     if (error) {
@@ -293,7 +384,7 @@ export default function PayrollPage() {
     setDeals((prev) =>
       prev.map((deal) =>
         deal.id === dealId
-          ? { ...deal, payment_date: paidDate, status: "active" }
+          ? { ...deal, ...updates }
           : deal
       )
     );
@@ -343,27 +434,56 @@ export default function PayrollPage() {
 
   const payrollRows = useMemo(() => {
     return reps.map((rep) => {
-      const paidPeriodDeals = deals.filter((deal) => {
-        if (deal.rep_id !== rep.id) return false;
-        return inRange(deal.payment_date, startDate, endDate);
-      });
+      const paidPeriodDeals: PayrollDeal[] = deals
+        .filter((deal) => {
+          if (deal.rep_id !== rep.id) return false;
+          return inRange(deal.payment_date, startDate, endDate);
+        })
+        .map((deal) => ({
+          ...deal,
+          payroll_event: "initial",
+          payroll_premium: initialPayrollPremium(deal),
+          payroll_date: deal.payment_date,
+          display_status: deal.status ?? "active",
+        }));
 
-      const recoveredPeriodDeals = deals.filter((deal) => {
-        if (deal.rep_id !== rep.id) return false;
-        return inRange(deal.recovered_date, startDate, endDate);
-      });
+      const balancePeriodDeals: PayrollDeal[] = deals
+        .filter((deal) => {
+          if (deal.rep_id !== rep.id) return false;
+          return inRange(deal.balance_paid_date, startDate, endDate);
+        })
+        .map((deal) => ({
+          ...deal,
+          payroll_event: "balance",
+          payroll_premium: balancePayrollPremium(deal),
+          payroll_date: deal.balance_paid_date,
+          display_status: "balance_paid",
+        }));
 
-      const uniqueDeals = new Map<string, Deal>();
+      const recoveredPeriodDeals: PayrollDeal[] = deals
+        .filter((deal) => {
+          if (deal.rep_id !== rep.id) return false;
+          return inRange(deal.recovered_date, startDate, endDate);
+        })
+        .map((deal) => ({
+          ...deal,
+          payroll_event: "recovered",
+          payroll_premium: fullStackPremium(deal),
+          payroll_date: deal.recovered_date,
+          display_status: "recovered",
+        }));
 
-      for (const deal of paidPeriodDeals) {
-        uniqueDeals.set(deal.id, deal);
-      }
-
-      for (const deal of recoveredPeriodDeals) {
-        uniqueDeals.set(deal.id, deal);
-      }
-
-      const repDeals = Array.from(uniqueDeals.values());
+      const repDeals = [
+        ...paidPeriodDeals,
+        ...balancePeriodDeals.filter(
+          (balanceDeal) => !paidPeriodDeals.some((paidDeal) => paidDeal.id === balanceDeal.id)
+        ),
+        ...recoveredPeriodDeals.filter(
+          (recoveredDeal) =>
+            !paidPeriodDeals.some((paidDeal) => paidDeal.id === recoveredDeal.id) &&
+            !balancePeriodDeals.some((balanceDeal) => balanceDeal.id === recoveredDeal.id)
+        ),
+      ];
 
       const recoveredDeals = recoveredPeriodDeals;
 
@@ -378,17 +498,22 @@ export default function PayrollPage() {
           (deal.status ?? "pending") !== "cancelled"
       );
 
-   const totalDeals = repDeals.length;
+      const totalDeals = paidPeriodDeals.length + recoveredPeriodDeals.length;
 
-const totalPremium = repDeals.reduce(
-  (sum, deal) => sum + Number(deal.total_premium || 0),
-  0
-);
+      const totalPremium = repDeals.reduce(
+        (sum, deal) => sum + Number(deal.payroll_premium || 0),
+        0
+      );
 
-      const avgPremium = totalDeals > 0 ? totalPremium / totalDeals : 0;
+      const avgPremiumBase = [...paidPeriodDeals, ...recoveredPeriodDeals];
+      const avgPremium =
+        avgPremiumBase.length > 0
+          ? avgPremiumBase.reduce((sum, deal) => sum + fullStackPremium(deal), 0) /
+            avgPremiumBase.length
+          : 0;
 
       const totalCancelledPremium = cancelledDeals.reduce(
-        (sum, deal) => sum + Number(deal.total_premium || 0),
+        (sum, deal) => sum + Number(deal.payroll_premium || 0),
         0
       );
 
@@ -703,18 +828,11 @@ const totalPremium = repDeals.reduce(
                     />
                   ) : (
                     row.repDeals.map((deal) => {
-                      const isRecoveryInThisPeriod = inRange(
-                        deal.recovered_date,
-                        startDate,
-                        endDate
-                      );
-
-                      const status = isRecoveryInThisPeriod
-                        ? "recovered"
-                        : deal.status ?? "active";
-
+                      const status = deal.display_status;
                       const cancelled = status === "cancelled";
                       const recovered = status === "recovered";
+                      const balancePaid = status === "balance_paid";
+                      const partialPay = status === "partial_pay";
 
                       return (
                         <tr
@@ -722,8 +840,10 @@ const totalPremium = repDeals.reduce(
                           className={`border-b border-white/5 transition-colors hover:bg-white/[0.03] ${
                             cancelled
                               ? "bg-red-500/[0.04]"
-                              : recovered
+                              : recovered || balancePaid
                               ? "bg-emerald-500/[0.04]"
+                              : partialPay
+                              ? "bg-blue-500/[0.04]"
                               : ""
                           }`}
                         >
@@ -734,9 +854,7 @@ const totalPremium = repDeals.reduce(
                             {deal.deal_date}
                           </td>
                           <td className="px-4 py-5 text-[15px] text-slate-100">
-                            {isRecoveryInThisPeriod
-                              ? deal.recovered_date || "—"
-                              : deal.payment_date || "—"}
+                            {deal.payroll_date || "—"}
                           </td>
                           <td className="px-4 py-5 text-[15px] font-medium text-white">
                             {getPlanName(deal.plan_id)}
@@ -748,7 +866,12 @@ const totalPremium = repDeals.reduce(
                             {currency(Number(deal.addon_premium || 0))}
                           </td>
                           <td className="px-4 py-5 text-right text-[15px] font-medium text-white">
-                            {currency(Number(deal.total_premium || 0))}
+                            <div>{currency(Number(deal.total_premium || 0))}</div>
+                            {(partialPay || balancePaid) ? (
+                              <div className="mt-1 text-xs font-normal text-slate-400">
+                                Payable: {currency(Number(deal.payroll_premium || 0))}
+                              </div>
+                            ) : null}
                           </td>
                           <td className="px-4 py-5">
                             <select
@@ -759,12 +882,16 @@ const totalPremium = repDeals.reduce(
                               className={`w-full rounded-2xl border px-3 py-2 text-[15px] outline-none transition ${
                                 cancelled
                                   ? "border-red-500/20 bg-red-500/10 text-red-300"
-                                  : recovered
+                                  : recovered || balancePaid
                                   ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
+                                  : partialPay
+                                  ? "border-blue-500/20 bg-blue-500/10 text-blue-300"
                                   : "border-white/10 bg-slate-900 text-white focus:border-slate-400"
                               }`}
                             >
                               <option value="active">Active</option>
+                              <option value="partial_pay">Partial Pay</option>
+                              <option value="balance_paid">Balance Paid</option>
                               <option value="pending">Pending</option>
                               <option value="cancelled">Cancelled</option>
                               <option value="recovered">Recovered</option>
