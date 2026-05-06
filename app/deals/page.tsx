@@ -23,6 +23,11 @@ type Deal = {
   limited_premium: number;
   addon_premium: number;
   total_premium: number;
+  collected_premium: number | null;
+  remaining_balance: number | null;
+  last_payment_amount: number | null;
+  balance_paid_date: string | null;
+  is_partial: boolean | null;
 };
 
 function todayString() {
@@ -37,6 +42,22 @@ function thirtyDaysAgo() {
 
 function currency(v: number) {
   return `$${Number(v || 0).toFixed(2)}`;
+}
+
+function getDisplayCollected(deal: Deal, total: number) {
+  const collected = Number(deal.collected_premium || 0);
+  if (collected > 0) return collected;
+  if (deal.payment_date && deal.status !== "pending") return total;
+  return 0;
+}
+
+function getDisplayRemaining(deal: Deal, total: number, collected: number) {
+  const remaining = Number(deal.remaining_balance || 0);
+  if (remaining > 0) return remaining;
+  if (deal.status === "partial_pay" || deal.is_partial) {
+    return Math.max(total - collected, 0);
+  }
+  return 0;
 }
 
 export default function DealsPage() {
@@ -91,13 +112,13 @@ export default function DealsPage() {
     setLoading(false);
   }
 
- useEffect(() => {
-  loadData();
-}, []);
+  useEffect(() => {
+    loadData();
+  }, []);
 
   function updateLocalDeal(id: string, updates: Partial<Deal>) {
     setDeals((prev) =>
-      prev.map((deal) => (deal.id === id ? { ...deal, ...updates } : deal))
+      prev.map((deal) => (deal.id === id ? { ...deal, ...updates } : deal)),
     );
   }
 
@@ -116,6 +137,18 @@ export default function DealsPage() {
     const addon = Number(deal.addon_premium || 0);
     const total = limited + addon;
 
+    const currentStatus = deal.status || "active";
+    const isPartial =
+      currentStatus === "partial_pay" || Boolean(deal.is_partial);
+    const collected = isPartial
+      ? Math.max(Number(deal.collected_premium || 0), 0)
+      : deal.payment_date
+        ? total
+        : Math.max(Number(deal.collected_premium || 0), 0);
+    const remaining = isPartial
+      ? Math.max(total - collected, 0)
+      : Math.max(Number(deal.remaining_balance || 0), 0);
+
     const { error } = await supabase
       .from("deals")
       .update({
@@ -131,7 +164,12 @@ export default function DealsPage() {
         limited_premium: limited,
         addon_premium: addon,
         total_premium: total,
-        status: deal.status || "active",
+        collected_premium: collected,
+        remaining_balance: remaining,
+        last_payment_amount: Number(deal.last_payment_amount || 0),
+        balance_paid_date: deal.balance_paid_date || null,
+        is_partial: isPartial,
+        status: currentStatus,
       })
       .eq("id", deal.id);
 
@@ -142,7 +180,13 @@ export default function DealsPage() {
       return;
     }
 
-    updateLocalDeal(deal.id, { total_premium: total });
+    updateLocalDeal(deal.id, {
+      total_premium: total,
+      collected_premium: collected,
+      remaining_balance: remaining,
+      is_partial: isPartial,
+      status: currentStatus,
+    });
     setSavedIds((prev) => ({ ...prev, [deal.id]: true }));
 
     window.setTimeout(() => {
@@ -159,6 +203,84 @@ export default function DealsPage() {
   async function saveCurrent(id: string) {
     const current = getCurrentDeal(id);
     if (current) await saveDeal(current);
+  }
+
+  async function updateDealStatus(dealId: string, nextStatus: string) {
+    setErrorText("");
+
+    const existingDeal = deals.find((deal) => deal.id === dealId);
+    if (!existingDeal) return;
+
+    const total =
+      Number(existingDeal.limited_premium || 0) +
+      Number(existingDeal.addon_premium || 0);
+    const collected = getDisplayCollected(existingDeal, total);
+    const remaining = getDisplayRemaining(existingDeal, total, collected);
+
+    if (nextStatus === "recovered") {
+      await updateAndSave(dealId, {
+        status: "cancelled",
+        recovered_date: todayString(),
+        payroll_paid: false,
+      });
+      return;
+    }
+
+    if (nextStatus === "partial_pay") {
+      const partialCollected =
+        collected > 0 && collected < total
+          ? collected
+          : Number(existingDeal.limited_premium || 0) > 0 &&
+              Number(existingDeal.limited_premium || 0) < total
+            ? Number(existingDeal.limited_premium || 0)
+            : 0;
+
+      await updateAndSave(dealId, {
+        status: "partial_pay",
+        payment_date: existingDeal.payment_date || todayString(),
+        recovered_date: null,
+        collected_premium: partialCollected,
+        remaining_balance: Math.max(total - partialCollected, 0),
+        last_payment_amount: 0,
+        balance_paid_date: null,
+        is_partial: true,
+      });
+      return;
+    }
+
+    const isCompletingPartial =
+      nextStatus === "active" &&
+      (existingDeal.status === "partial_pay" ||
+        existingDeal.is_partial ||
+        remaining > 0);
+
+    if (isCompletingPartial && remaining > 0) {
+      const paidDate = todayString();
+
+      await updateAndSave(dealId, {
+        status: "active",
+        payment_date: existingDeal.payment_date || paidDate,
+        recovered_date: null,
+        collected_premium: total,
+        remaining_balance: 0,
+        last_payment_amount: remaining,
+        balance_paid_date: paidDate,
+        is_partial: false,
+      });
+      return;
+    }
+
+    await updateAndSave(dealId, {
+      status: nextStatus,
+      recovered_date: null,
+      is_partial: false,
+      remaining_balance:
+        nextStatus === "active" ? 0 : existingDeal.remaining_balance,
+      collected_premium:
+        nextStatus === "active" && existingDeal.payment_date
+          ? total
+          : existingDeal.collected_premium,
+    });
   }
 
   const filteredDeals = useMemo(() => {
@@ -187,7 +309,8 @@ export default function DealsPage() {
             Deals
           </h1>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400 sm:text-base">
-            Edit existing deals. Text fields auto-save when you click away. Dropdowns save immediately.
+            Edit existing deals. Text fields auto-save when you click away.
+            Dropdowns save immediately.
           </p>
         </div>
       </section>
@@ -248,7 +371,7 @@ export default function DealsPage() {
 
         <div className="overflow-hidden rounded-2xl border border-white/10 bg-slate-900/40">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1120px] text-[14px]">
+            <table className="w-full min-w-[1320px] text-[14px]">
               <thead>
                 <tr className="border-b border-white/10 bg-white/[0.03] text-left text-xs uppercase tracking-[0.14em] text-slate-400">
                   <th className="px-3 py-4">Sold</th>
@@ -261,6 +384,8 @@ export default function DealsPage() {
                   <th className="px-3 py-4">Limited</th>
                   <th className="px-3 py-4">Add-On</th>
                   <th className="px-3 py-4">Total</th>
+                  <th className="px-3 py-4">Collected</th>
+                  <th className="px-3 py-4">Remaining</th>
                   <th className="px-3 py-4">Status</th>
                 </tr>
               </thead>
@@ -281,7 +406,9 @@ export default function DealsPage() {
                           type="date"
                           value={deal.deal_date}
                           onChange={(e) =>
-                            updateLocalDeal(deal.id, { deal_date: e.target.value })
+                            updateLocalDeal(deal.id, {
+                              deal_date: e.target.value,
+                            })
                           }
                           onBlur={() => saveCurrent(deal.id)}
                           className="table-input w-28"
@@ -306,7 +433,9 @@ export default function DealsPage() {
                         <input
                           value={deal.member_id ?? ""}
                           onChange={(e) =>
-                            updateLocalDeal(deal.id, { member_id: e.target.value })
+                            updateLocalDeal(deal.id, {
+                              member_id: e.target.value,
+                            })
                           }
                           onBlur={() => saveCurrent(deal.id)}
                           className="table-input w-28"
@@ -317,7 +446,9 @@ export default function DealsPage() {
                         <input
                           value={deal.phone_number ?? ""}
                           onChange={(e) =>
-                            updateLocalDeal(deal.id, { phone_number: e.target.value })
+                            updateLocalDeal(deal.id, {
+                              phone_number: e.target.value,
+                            })
                           }
                           onBlur={() => saveCurrent(deal.id)}
                           className="table-input w-28"
@@ -328,7 +459,9 @@ export default function DealsPage() {
                         <select
                           value={deal.rep_id ?? ""}
                           onChange={(e) =>
-                            updateAndSave(deal.id, { rep_id: e.target.value || null })
+                            updateAndSave(deal.id, {
+                              rep_id: e.target.value || null,
+                            })
                           }
                           className="table-input w-28"
                         >
@@ -345,7 +478,9 @@ export default function DealsPage() {
                         <select
                           value={deal.source_id ?? ""}
                           onChange={(e) =>
-                            updateAndSave(deal.id, { source_id: e.target.value || null })
+                            updateAndSave(deal.id, {
+                              source_id: e.target.value || null,
+                            })
                           }
                           className="table-input w-32"
                         >
@@ -362,7 +497,9 @@ export default function DealsPage() {
                         <select
                           value={deal.plan_id ?? ""}
                           onChange={(e) =>
-                            updateAndSave(deal.id, { plan_id: e.target.value || null })
+                            updateAndSave(deal.id, {
+                              plan_id: e.target.value || null,
+                            })
                           }
                           className="table-input w-32"
                         >
@@ -418,28 +555,58 @@ export default function DealsPage() {
                       </td>
 
                       <td className="px-3 py-3">
-                        <select
-                          value={deal.recovered_date ? "recovered" : deal.status ?? "active"}
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={getDisplayCollected(deal, total)}
                           onChange={(e) => {
-                            const nextStatus = e.target.value;
-
-                            if (nextStatus === "recovered") {
-                              updateAndSave(deal.id, {
-                                status: "cancelled",
-                                recovered_date: todayString(),
-                                payroll_paid: false,
-                              });
-                              return;
-                            }
-
-                            updateAndSave(deal.id, {
-                              status: nextStatus,
-                              recovered_date: null,
+                            const collected = Number(e.target.value || 0);
+                            updateLocalDeal(deal.id, {
+                              collected_premium: collected,
+                              remaining_balance:
+                                deal.status === "partial_pay" || deal.is_partial
+                                  ? Math.max(total - collected, 0)
+                                  : deal.remaining_balance,
                             });
                           }}
+                          onBlur={() => saveCurrent(deal.id)}
+                          className="table-input w-24"
+                        />
+                      </td>
+
+                      <td className="px-3 py-3">
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={getDisplayRemaining(
+                            deal,
+                            total,
+                            getDisplayCollected(deal, total),
+                          )}
+                          onChange={(e) =>
+                            updateLocalDeal(deal.id, {
+                              remaining_balance: Number(e.target.value || 0),
+                            })
+                          }
+                          onBlur={() => saveCurrent(deal.id)}
+                          className="table-input w-24"
+                        />
+                      </td>
+
+                      <td className="px-3 py-3">
+                        <select
+                          value={
+                            deal.recovered_date
+                              ? "recovered"
+                              : (deal.status ?? "active")
+                          }
+                          onChange={(e) =>
+                            updateDealStatus(deal.id, e.target.value)
+                          }
                           className="table-input w-28"
                         >
                           <option value="active">Active</option>
+                          <option value="partial_pay">Partial Pay</option>
                           <option value="pending">Pending</option>
                           <option value="cancelled">Cancelled</option>
                           <option value="recovered">Recovered</option>
@@ -451,7 +618,10 @@ export default function DealsPage() {
 
                 {filteredDeals.length === 0 ? (
                   <tr>
-                    <td colSpan={11} className="px-4 py-10 text-center text-slate-500">
+                    <td
+                      colSpan={13}
+                      className="px-4 py-10 text-center text-slate-500"
+                    >
                       No deals found.
                     </td>
                   </tr>
