@@ -12,6 +12,8 @@ type Deal = {
   id: string;
   deal_date: string;
   payment_date: string | null;
+  scheduled_payment_date: string | null;
+  remaining_payment_date: string | null;
   recovered_date: string | null;
   payroll_paid: boolean;
   rep_id: string | null;
@@ -154,6 +156,8 @@ export default function DealsPage() {
       .update({
         deal_date: deal.deal_date,
         payment_date: deal.payment_date || null,
+        scheduled_payment_date: deal.scheduled_payment_date || null,
+        remaining_payment_date: deal.remaining_payment_date || null,
         recovered_date: deal.recovered_date || null,
         payroll_paid: deal.payroll_paid ?? false,
         rep_id: deal.rep_id || null,
@@ -238,11 +242,13 @@ export default function DealsPage() {
       await updateAndSave(dealId, {
         status: "partial_pay",
         payment_date: existingDeal.payment_date || todayString(),
+        scheduled_payment_date: null,
         recovered_date: null,
         collected_premium: partialCollected,
         remaining_balance: Math.max(total - partialCollected, 0),
         last_payment_amount: 0,
         balance_paid_date: null,
+        remaining_payment_date: existingDeal.remaining_payment_date || null,
         is_partial: true,
       });
       return;
@@ -260,6 +266,8 @@ export default function DealsPage() {
       await updateAndSave(dealId, {
         status: "active",
         payment_date: existingDeal.payment_date || paidDate,
+        scheduled_payment_date: null,
+        remaining_payment_date: null,
         recovered_date: null,
         collected_premium: total,
         remaining_balance: 0,
@@ -272,14 +280,26 @@ export default function DealsPage() {
 
     await updateAndSave(dealId, {
       status: nextStatus,
+      payment_date:
+        nextStatus === "active"
+          ? existingDeal.payment_date || todayString()
+          : nextStatus === "pending"
+            ? null
+            : existingDeal.payment_date,
+      scheduled_payment_date:
+        nextStatus === "active" ? null : existingDeal.scheduled_payment_date,
+      remaining_payment_date:
+        nextStatus === "active" ? null : existingDeal.remaining_payment_date,
       recovered_date: null,
       is_partial: false,
       remaining_balance:
         nextStatus === "active" ? 0 : existingDeal.remaining_balance,
       collected_premium:
-        nextStatus === "active" && existingDeal.payment_date
+        nextStatus === "active"
           ? total
-          : existingDeal.collected_premium,
+          : nextStatus === "pending"
+            ? 0
+            : existingDeal.collected_premium,
     });
   }
 
@@ -371,21 +391,17 @@ export default function DealsPage() {
 
         <div className="overflow-hidden rounded-xl border border-white/10 bg-slate-900/40">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1180px] text-[13px]">
+            <table className="w-full min-w-[980px] text-[13px]">
               <thead>
                 <tr className="border-b border-white/10 bg-white/[0.03] text-left text-xs uppercase tracking-[0.14em] text-slate-400">
-                  <th className="px-2 py-2.5">Sold</th>
-                  <th className="px-2 py-2.5">Paid</th>
-                  <th className="px-2 py-2.5">Member ID</th>
-                  <th className="px-2 py-2.5">Phone</th>
+                  <th className="px-2 py-2.5">Sold / Paid</th>
+                  <th className="px-2 py-2.5">Member / Phone</th>
                   <th className="px-2 py-2.5">Rep</th>
                   <th className="px-2 py-2.5">Source</th>
                   <th className="px-2 py-2.5">Plan</th>
-                  <th className="px-2 py-2.5">Limited</th>
-                  <th className="px-2 py-2.5">Add-On</th>
-                  <th className="px-2 py-2.5">Total</th>
-                  <th className="px-2 py-2.5">Collected</th>
-                  <th className="px-2 py-2.5">Remaining</th>
+                  <th className="px-2 py-2.5">Limited / Add-On</th>
+                  <th className="px-2 py-2.5">Premium</th>
+                  <th className="px-2 py-2.5">Post / Balance</th>
                   <th className="px-2 py-2.5">Status</th>
                 </tr>
               </thead>
@@ -402,57 +418,69 @@ export default function DealsPage() {
                       className="border-b border-white/5 transition-colors hover:bg-white/[0.03]"
                     >
                       <td className="px-2 py-2">
-                        <input
-                          type="date"
-                          value={deal.deal_date}
-                          onChange={(e) =>
-                            updateLocalDeal(deal.id, {
-                              deal_date: e.target.value,
-                            })
-                          }
-                          onBlur={() => saveCurrent(deal.id)}
-                          className="table-input w-[108px]"
-                        />
+                        <div className="space-y-1">
+                          <div className="grid grid-cols-[34px_1fr] items-center gap-1 text-[10px] uppercase tracking-[0.12em] text-slate-500">
+                            <span>Sold</span>
+                            <input
+                              type="date"
+                              value={deal.deal_date}
+                              onChange={(e) =>
+                                updateLocalDeal(deal.id, {
+                                  deal_date: e.target.value,
+                                })
+                              }
+                              onBlur={() => saveCurrent(deal.id)}
+                              className="table-input w-[108px]"
+                            />
+                          </div>
+
+                          <div className="grid grid-cols-[34px_1fr] items-center gap-1 text-[10px] uppercase tracking-[0.12em] text-slate-500">
+                            <span>Paid</span>
+                            <input
+                              type="date"
+                              value={deal.payment_date ?? ""}
+                              onChange={(e) =>
+                                updateLocalDeal(deal.id, {
+                                  payment_date: e.target.value || null,
+                                })
+                              }
+                              onBlur={() => saveCurrent(deal.id)}
+                              className="table-input w-[108px]"
+                            />
+                          </div>
+                        </div>
                       </td>
 
                       <td className="px-2 py-2">
-                        <input
-                          type="date"
-                          value={deal.payment_date ?? ""}
-                          onChange={(e) =>
-                            updateLocalDeal(deal.id, {
-                              payment_date: e.target.value || null,
-                            })
-                          }
-                          onBlur={() => saveCurrent(deal.id)}
-                          className="table-input w-[108px]"
-                        />
-                      </td>
+                        <div className="space-y-1">
+                          <div className="grid grid-cols-[42px_1fr] items-center gap-1 text-[10px] uppercase tracking-[0.12em] text-slate-500">
+                            <span>ID</span>
+                            <input
+                              value={deal.member_id ?? ""}
+                              onChange={(e) =>
+                                updateLocalDeal(deal.id, {
+                                  member_id: e.target.value,
+                                })
+                              }
+                              onBlur={() => saveCurrent(deal.id)}
+                              className="table-input w-[98px]"
+                            />
+                          </div>
 
-                      <td className="px-2 py-2">
-                        <input
-                          value={deal.member_id ?? ""}
-                          onChange={(e) =>
-                            updateLocalDeal(deal.id, {
-                              member_id: e.target.value,
-                            })
-                          }
-                          onBlur={() => saveCurrent(deal.id)}
-                          className="table-input w-[86px]"
-                        />
-                      </td>
-
-                      <td className="px-2 py-2">
-                        <input
-                          value={deal.phone_number ?? ""}
-                          onChange={(e) =>
-                            updateLocalDeal(deal.id, {
-                              phone_number: e.target.value,
-                            })
-                          }
-                          onBlur={() => saveCurrent(deal.id)}
-                          className="table-input w-[92px]"
-                        />
+                          <div className="grid grid-cols-[42px_1fr] items-center gap-1 text-[10px] uppercase tracking-[0.12em] text-slate-500">
+                            <span>Phone</span>
+                            <input
+                              value={deal.phone_number ?? ""}
+                              onChange={(e) =>
+                                updateLocalDeal(deal.id, {
+                                  phone_number: e.target.value,
+                                })
+                              }
+                              onBlur={() => saveCurrent(deal.id)}
+                              className="table-input w-[98px]"
+                            />
+                          </div>
+                        </div>
                       </td>
 
                       <td className="px-2 py-2">
@@ -513,84 +541,137 @@ export default function DealsPage() {
                       </td>
 
                       <td className="px-2 py-2">
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={deal.limited_premium ?? 0}
-                          onChange={(e) =>
-                            updateLocalDeal(deal.id, {
-                              limited_premium: Number(e.target.value || 0),
-                            })
-                          }
-                          onBlur={() => saveCurrent(deal.id)}
-                          className="table-input w-[70px]"
-                        />
-                      </td>
+                        <div className="space-y-1">
+                          <div className="grid grid-cols-[42px_1fr] items-center gap-1 text-[10px] uppercase tracking-[0.12em] text-slate-500">
+                            <span>Limit</span>
+                            <input
+                              type="number"
+                              step="0.01"
+                              value={deal.limited_premium ?? 0}
+                              onChange={(e) =>
+                                updateLocalDeal(deal.id, {
+                                  limited_premium: Number(e.target.value || 0),
+                                })
+                              }
+                              onBlur={() => saveCurrent(deal.id)}
+                              className="table-input w-[74px]"
+                            />
+                          </div>
 
-                      <td className="px-2 py-2">
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={deal.addon_premium ?? 0}
-                          onChange={(e) =>
-                            updateLocalDeal(deal.id, {
-                              addon_premium: Number(e.target.value || 0),
-                            })
-                          }
-                          onBlur={() => saveCurrent(deal.id)}
-                          className="table-input w-[70px]"
-                        />
-                      </td>
-
-                      <td className="px-2 py-2 font-semibold text-white">
-                        <div className="flex items-center gap-1.5">
-                          <span>{currency(total)}</span>
-                          {savingIds[deal.id] ? (
-                            <span className="text-xs text-slate-400">...</span>
-                          ) : null}
-                          {savedIds[deal.id] ? (
-                            <span className="text-xs text-emerald-400">✓</span>
-                          ) : null}
+                          <div className="grid grid-cols-[42px_1fr] items-center gap-1 text-[10px] uppercase tracking-[0.12em] text-slate-500">
+                            <span>Add</span>
+                            <input
+                              type="number"
+                              step="0.01"
+                              value={deal.addon_premium ?? 0}
+                              onChange={(e) =>
+                                updateLocalDeal(deal.id, {
+                                  addon_premium: Number(e.target.value || 0),
+                                })
+                              }
+                              onBlur={() => saveCurrent(deal.id)}
+                              className="table-input w-[74px]"
+                            />
+                          </div>
                         </div>
                       </td>
 
                       <td className="px-2 py-2">
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={getDisplayCollected(deal, total)}
-                          onChange={(e) => {
-                            const collected = Number(e.target.value || 0);
-                            updateLocalDeal(deal.id, {
-                              collected_premium: collected,
-                              remaining_balance:
-                                deal.status === "partial_pay" || deal.is_partial
-                                  ? Math.max(total - collected, 0)
-                                  : deal.remaining_balance,
-                            });
-                          }}
-                          onBlur={() => saveCurrent(deal.id)}
-                          className="table-input w-[82px]"
-                        />
+                        <div className="min-w-[118px] rounded-lg border border-white/10 bg-white/[0.025] px-2 py-1.5">
+                          <div className="flex items-center gap-1.5 font-semibold text-white">
+                            <span>{currency(total)}</span>
+                            {savingIds[deal.id] ? (
+                              <span className="text-[10px] text-slate-400">
+                                ...
+                              </span>
+                            ) : null}
+                            {savedIds[deal.id] ? (
+                              <span className="text-[10px] text-emerald-400">
+                                ✓
+                              </span>
+                            ) : null}
+                          </div>
+
+                          <div className="mt-1 grid grid-cols-[48px_1fr] items-center gap-1 text-[10px] text-slate-500">
+                            <span>Coll.</span>
+                            <input
+                              type="number"
+                              step="0.01"
+                              value={getDisplayCollected(deal, total)}
+                              onChange={(e) => {
+                                const collected = Number(e.target.value || 0);
+                                updateLocalDeal(deal.id, {
+                                  collected_premium: collected,
+                                  remaining_balance:
+                                    deal.status === "partial_pay" ||
+                                    deal.is_partial
+                                      ? Math.max(total - collected, 0)
+                                      : deal.remaining_balance,
+                                });
+                              }}
+                              onBlur={() => saveCurrent(deal.id)}
+                              className="table-input table-input-mini w-[66px]"
+                            />
+                          </div>
+
+                          <div className="mt-1 grid grid-cols-[48px_1fr] items-center gap-1 text-[10px] text-slate-500">
+                            <span>Rem.</span>
+                            <input
+                              type="number"
+                              step="0.01"
+                              value={getDisplayRemaining(
+                                deal,
+                                total,
+                                getDisplayCollected(deal, total),
+                              )}
+                              onChange={(e) =>
+                                updateLocalDeal(deal.id, {
+                                  remaining_balance: Number(
+                                    e.target.value || 0,
+                                  ),
+                                })
+                              }
+                              onBlur={() => saveCurrent(deal.id)}
+                              className="table-input table-input-mini w-[66px]"
+                            />
+                          </div>
+                        </div>
                       </td>
 
                       <td className="px-2 py-2">
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={getDisplayRemaining(
-                            deal,
-                            total,
-                            getDisplayCollected(deal, total),
-                          )}
-                          onChange={(e) =>
-                            updateLocalDeal(deal.id, {
-                              remaining_balance: Number(e.target.value || 0),
-                            })
-                          }
-                          onBlur={() => saveCurrent(deal.id)}
-                          className="table-input w-[82px]"
-                        />
+                        <div className="space-y-1">
+                          <div className="grid grid-cols-[48px_1fr] items-center gap-1 text-[10px] uppercase tracking-[0.12em] text-slate-500">
+                            <span>Post</span>
+                            <input
+                              type="date"
+                              value={deal.scheduled_payment_date ?? ""}
+                              onChange={(e) =>
+                                updateLocalDeal(deal.id, {
+                                  scheduled_payment_date:
+                                    e.target.value || null,
+                                })
+                              }
+                              onBlur={() => saveCurrent(deal.id)}
+                              className="table-input w-[108px]"
+                            />
+                          </div>
+
+                          <div className="grid grid-cols-[48px_1fr] items-center gap-1 text-[10px] uppercase tracking-[0.12em] text-slate-500">
+                            <span>Bal.</span>
+                            <input
+                              type="date"
+                              value={deal.remaining_payment_date ?? ""}
+                              onChange={(e) =>
+                                updateLocalDeal(deal.id, {
+                                  remaining_payment_date:
+                                    e.target.value || null,
+                                })
+                              }
+                              onBlur={() => saveCurrent(deal.id)}
+                              className="table-input w-[108px]"
+                            />
+                          </div>
+                        </div>
                       </td>
 
                       <td className="px-2 py-2">
@@ -619,7 +700,7 @@ export default function DealsPage() {
                 {filteredDeals.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={13}
+                      colSpan={9}
                       className="px-3 py-8 text-center text-slate-500"
                     >
                       No deals found.
@@ -652,6 +733,11 @@ export default function DealsPage() {
           font-size: 12px;
           color: white;
           outline: none;
+        }
+
+        .table-input-mini {
+          padding: 0.2rem 0.3rem;
+          font-size: 11px;
         }
 
         .field-input:focus,

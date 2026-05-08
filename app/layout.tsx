@@ -15,6 +15,7 @@ const navItems = [
   { href: "/sources", label: "Settings" },
   { href: "/reports", label: "Reports" },
   { href: "/deals", label: "Deals" },
+  { href: "/post-dates", label: "Post Dates" },
 ];
 
 export default function RootLayout({

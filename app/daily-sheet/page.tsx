@@ -49,6 +49,8 @@ type Deal = {
   id: string;
   deal_date: string;
   payment_date: string | null;
+  scheduled_payment_date: string | null;
+  remaining_payment_date: string | null;
   rep_id: string | null;
   member_id: string | null;
   phone_number: string | null;
@@ -102,6 +104,8 @@ export default function DailySheetPage() {
     limited_premium: "",
     addon_premium: "",
     collected_premium: "",
+    scheduled_payment_date: "",
+    remaining_payment_date: "",
     aca_sold: false,
     paid_today: true,
     is_partial: false,
@@ -346,6 +350,16 @@ export default function DailySheetPage() {
       return;
     }
 
+    if (isPartial && !dealForm.remaining_payment_date) {
+      setErrorText("Please enter the date the remaining payment is supposed to run.");
+      return;
+    }
+
+    if (!isPartial && !dealForm.paid_today && !dealForm.scheduled_payment_date) {
+      setErrorText("Please enter the date the post-dated payment is supposed to run.");
+      return;
+    }
+
     const remaining = Math.max(total - collected, 0);
     const paymentDate = dealForm.paid_today || isPartial ? todayString() : null;
 
@@ -359,6 +373,10 @@ export default function DailySheetPage() {
       office_id: OFFICE_ID,
       deal_date: date,
       payment_date: paymentDate,
+      scheduled_payment_date:
+        !isPartial && !dealForm.paid_today ? dealForm.scheduled_payment_date : null,
+      remaining_payment_date:
+        isPartial ? dealForm.remaining_payment_date : null,
       rep_id: dealForm.rep_id,
       member_id: dealForm.member_id.trim(),
       phone_number: dealForm.phone_number.trim() || null,
@@ -388,6 +406,8 @@ export default function DailySheetPage() {
       limited_premium: "",
       addon_premium: "",
       collected_premium: "",
+      scheduled_payment_date: "",
+      remaining_payment_date: "",
       aca_sold: false,
       paid_today: true,
       is_partial: false,
@@ -742,7 +762,37 @@ export default function DailySheetPage() {
                       className="field-input field-input-readonly"
                     />
                   </Field>
+
+                  <Field label="Remaining Payment Run Date">
+                    <input
+                      type="date"
+                      value={dealForm.remaining_payment_date}
+                      onChange={(e) =>
+                        setDealForm((prev) => ({
+                          ...prev,
+                          remaining_payment_date: e.target.value,
+                        }))
+                      }
+                      className="field-input"
+                    />
+                  </Field>
                 </>
+              ) : null}
+
+              {!dealForm.is_partial && !dealForm.paid_today ? (
+                <Field label="Post-Date Payment Run Date">
+                  <input
+                    type="date"
+                    value={dealForm.scheduled_payment_date}
+                    onChange={(e) =>
+                      setDealForm((prev) => ({
+                        ...prev,
+                        scheduled_payment_date: e.target.value,
+                      }))
+                    }
+                    className="field-input"
+                  />
+                </Field>
               ) : null}
 
               <div className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-4">
@@ -770,11 +820,17 @@ export default function DailySheetPage() {
                       checked={dealForm.paid_today}
                       disabled={dealForm.is_partial}
                       onChange={(e) =>
-                        setDealForm((prev) => ({ ...prev, paid_today: e.target.checked }))
+                        setDealForm((prev) => ({
+                          ...prev,
+                          paid_today: e.target.checked,
+                          scheduled_payment_date: e.target.checked
+                            ? ""
+                            : prev.scheduled_payment_date,
+                        }))
                       }
                       className="h-4 w-4 rounded border-white/20 bg-slate-900 disabled:opacity-50"
                     />
-                    Paid today?
+                    Money collected today?
                   </label>
 
                   <label className="flex items-center gap-3 text-[15px] text-slate-200">
@@ -790,6 +846,12 @@ export default function DailySheetPage() {
                           collected_premium: e.target.checked
                             ? prev.collected_premium
                             : "",
+                          scheduled_payment_date: e.target.checked
+                            ? ""
+                            : prev.scheduled_payment_date,
+                          remaining_payment_date: e.target.checked
+                            ? prev.remaining_payment_date
+                            : "",
                         }))
                       }
                       className="h-4 w-4 rounded border-white/20 bg-slate-900"
@@ -803,7 +865,13 @@ export default function DailySheetPage() {
                 <div className="rounded-2xl border border-blue-500/20 bg-blue-500/10 px-4 py-4 text-sm leading-6 text-blue-100 md:col-span-2">
                   This will save as <strong>1 sale today</strong>, count only{" "}
                   <strong>{currency(collectedToday)}</strong> as premium collected, and leave{" "}
-                  <strong>{currency(remainingBalance)}</strong> pending.
+                  <strong>{currency(remainingBalance)}</strong> pending until you mark the balance collected.
+                </div>
+              ) : null}
+
+              {!dealForm.is_partial && !dealForm.paid_today ? (
+                <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-4 text-sm leading-6 text-amber-100 md:col-span-2">
+                  This will save as a <strong>post-dated pending deal</strong>. It will not count as revenue or payroll until you mark it active/paid.
                 </div>
               ) : null}
             </div>
