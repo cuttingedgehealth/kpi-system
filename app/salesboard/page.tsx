@@ -33,22 +33,35 @@ function format(d: Date) {
 }
 
 function shortDayLabel(index: number) {
-  return ["Mon", "Tue", "Wed", "Thu", "Fri"][index] ?? "";
+  return ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][index] ?? "";
+}
+
+function buildDays(start: string, end: string) {
+  const days: string[] = [];
+  const current = new Date(`${start}T00:00:00`);
+  const final = new Date(`${end}T00:00:00`);
+
+  while (current <= final) {
+    days.push(format(current));
+    current.setDate(current.getDate() + 1);
+  }
+
+  return days;
 }
 
 export default function SalesboardPage() {
+  const today = new Date();
+  const monday = getMonday(today);
+  const friday = new Date(monday);
+  friday.setDate(monday.getDate() + 4);
+
   const [reps, setReps] = useState<Rep[]>([]);
   const [deals, setDeals] = useState<Deal[]>([]);
   const [loading, setLoading] = useState(true);
+  const [startDate, setStartDate] = useState(format(monday));
+  const [endDate, setEndDate] = useState(format(friday));
 
-  const today = new Date();
-  const monday = getMonday(today);
-
-  const days = Array.from({ length: 5 }).map((_, i) => {
-    const d = new Date(monday);
-    d.setDate(monday.getDate() + i);
-    return format(d);
-  });
+  const days = useMemo(() => buildDays(startDate, endDate), [startDate, endDate]);
 
   async function load() {
     setLoading(true);
@@ -132,7 +145,7 @@ export default function SalesboardPage() {
               Salesboard
             </h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400 sm:text-base">
-              Paid premium only. Monday through Friday. Built to show who is producing right now.
+              Paid premium only. Select a date range to view current or previous weeks.
             </p>
           </div>
 
@@ -146,16 +159,40 @@ export default function SalesboardPage() {
       </section>
 
       <section className="rounded-3xl border border-white/10 bg-slate-950/80 p-6 shadow-xl">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <h2 className="text-2xl font-semibold tracking-tight">Salesboard Period</h2>
+            <p className="mt-2 text-sm text-slate-400">
+              Pick a previous week or custom range, then click refresh.
+            </p>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto]">
+            <DateField label="Start" value={startDate} onChange={setStartDate} />
+            <DateField label="End" value={endDate} onChange={setEndDate} />
+            <div className="flex items-end">
+              <button
+                onClick={load}
+                className="w-full rounded-2xl border border-white/10 bg-white/[0.03] px-5 py-3 text-sm font-semibold text-slate-300 transition hover:bg-white/[0.06]"
+              >
+                Refresh
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-3xl border border-white/10 bg-slate-950/80 p-6 shadow-xl">
         <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h2 className="text-2xl font-semibold tracking-tight">Weekly Premium Board</h2>
             <p className="mt-1 text-sm text-slate-400">
-              Ranked by total paid premium for the current week.
+              Ranked by total paid premium for the selected date range.
             </p>
           </div>
 
           <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
-            {days[0]} → {days[4]}
+            {days[0]} → {days[days.length - 1]}
           </div>
         </div>
 
@@ -246,7 +283,10 @@ export default function SalesboardPage() {
 
                 {rows.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-4 py-10 text-center text-slate-500">
+                    <td
+                      colSpan={days.length + 3}
+                      className="px-4 py-10 text-center text-slate-500"
+                    >
                       No reps found.
                     </td>
                   </tr>
@@ -257,6 +297,30 @@ export default function SalesboardPage() {
         </div>
       </section>
     </div>
+  );
+}
+
+function DateField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="block">
+      <div className="mb-2 text-xs uppercase tracking-[0.18em] text-slate-500">
+        {label}
+      </div>
+      <input
+        type="date"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-sm text-white outline-none transition focus:border-slate-400"
+      />
+    </label>
   );
 }
 
