@@ -107,7 +107,6 @@ export default function DashboardPage() {
       .from("sources")
       .select("*")
       .eq("office_id", OFFICE_ID)
-      .eq("active", true)
       .order("display_order", { ascending: true });
 
     const { data: metricData, error: metricError } = await supabase
