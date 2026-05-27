@@ -109,15 +109,25 @@ export default function DashboardPage() {
       .eq("office_id", OFFICE_ID)
       .order("display_order", { ascending: true });
 
-    const { data: metricData, error: metricError } = await supabase
-      .from("daily_metrics")
-      .select("*")
-      .eq("office_id", OFFICE_ID);
+ const currentYear = new Date().getFullYear();
 
-    const { data: dealData, error: dealError } = await supabase
-      .from("deals")
-      .select("*")
-      .eq("office_id", OFFICE_ID);
+const { data: metricData, error: metricError } = await supabase
+  .from("daily_metrics")
+  .select("*")
+  .eq("office_id", OFFICE_ID)
+  .gte("metric_date", `${currentYear}-01-01`)
+  .lte("metric_date", `${currentYear}-12-31`)
+  .order("metric_date", { ascending: false })
+  .range(0, 5000);
+
+const { data: dealData, error: dealError } = await supabase
+  .from("deals")
+  .select("*")
+  .eq("office_id", OFFICE_ID)
+  .gte("payment_date", `${currentYear}-01-01`)
+  .lte("payment_date", `${currentYear}-12-31`)
+  .order("payment_date", { ascending: false })
+  .range(0, 5000);
 
     if (sourceError) setErrorText(`Source load error: ${sourceError.message}`);
     if (metricError) setErrorText((prev) => prev || `Metric load error: ${metricError.message}`);
