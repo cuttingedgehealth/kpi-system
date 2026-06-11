@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { OFFICE_ID } from "@/lib/config";
 
@@ -35,6 +35,8 @@ type DailyMetric = {
   cpl_override: number | null;
   spend_override: number | null;
 };
+
+const MAX_QUERY_ROWS = 5000;
 
 function todayString() {
   return new Date().toISOString().slice(0, 10);
@@ -77,43 +79,76 @@ export default function ReportsPage() {
   const [loading, setLoading] = useState(true);
   const [errorText, setErrorText] = useState("");
 
-  async function loadData() {
+  const loadData = useCallback(async () => {
     setLoading(true);
     setErrorText("");
 
-    const { data: sourceData, error: sourceError } = await supabase
-      .from("sources")
-      .select("id,name,type,base_cpl,active")
-      .eq("office_id", OFFICE_ID)
-      .eq("active", true)
-      .order("name", { ascending: true });
+    const normalizedStartDate = startDate <= endDate ? startDate : endDate;
+    const normalizedEndDate = startDate <= endDate ? endDate : startDate;
 
-    const { data: dealData, error: dealError } = await supabase
-      .from("deals")
-      .select("id,deal_date,payment_date,phone_number,source_id,total_premium,collected_premium,remaining_balance,last_payment_amount,balance_paid_date,is_partial,status")
-      .eq("office_id", OFFICE_ID);
+    const [sourceResult, dealResult, metricResult] = await Promise.all([
+      supabase
+        .from("sources")
+        .select("id,name,type,base_cpl,active")
+        .eq("office_id", OFFICE_ID)
+        .eq("active", true)
+        .order("name", { ascending: true })
+        .range(0, MAX_QUERY_ROWS),
 
-    const { data: metricData, error: metricError } = await supabase
-      .from("daily_metrics")
-      .select("id,metric_date,source_id,quantity,cpl_override,spend_override")
-      .eq("office_id", OFFICE_ID);
+      supabase
+        .from("deals")
+        .select(
+          "id,deal_date,payment_date,phone_number,source_id,total_premium,collected_premium,remaining_balance,last_payment_amount,balance_paid_date,is_partial,status"
+        )
+        .eq("office_id", OFFICE_ID)
+        .gte("deal_date", normalizedStartDate)
+        .lte("deal_date", normalizedEndDate)
+        .order("deal_date", { ascending: true })
+        .range(0, MAX_QUERY_ROWS),
 
-    if (sourceError) setErrorText(`Source load error: ${sourceError.message}`);
-    if (dealError) setErrorText((prev) => prev || `Deal load error: ${dealError.message}`);
-    if (metricError) setErrorText((prev) => prev || `Metric load error: ${metricError.message}`);
+      supabase
+        .from("daily_metrics")
+        .select("id,metric_date,source_id,quantity,cpl_override,spend_override")
+        .eq("office_id", OFFICE_ID)
+        .gte("metric_date", normalizedStartDate)
+        .lte("metric_date", normalizedEndDate)
+        .order("metric_date", { ascending: true })
+        .range(0, MAX_QUERY_ROWS),
+    ]);
 
-    const sourceList = (sourceData ?? []) as Source[];
+    if (sourceResult.error) {
+      setErrorText(`Source load error: ${sourceResult.error.message}`);
+    }
+
+    if (dealResult.error) {
+      setErrorText((prev) => prev || `Deal load error: ${dealResult.error.message}`);
+    }
+
+    if (metricResult.error) {
+      setErrorText((prev) => prev || `Metric load error: ${metricResult.error.message}`);
+    }
+
+    const sourceList = (sourceResult.data ?? []) as Source[];
 
     setSources(sourceList);
-    setDeals((dealData ?? []) as Deal[]);
-    setDailyMetrics((metricData ?? []) as DailyMetric[]);
-    setSelectedSourceIds(sourceList.map((source) => source.id));
+    setDeals((dealResult.data ?? []) as Deal[]);
+    setDailyMetrics((metricResult.data ?? []) as DailyMetric[]);
+
+    setSelectedSourceIds((prev) => {
+      const activeSourceIds = sourceList.map((source) => source.id);
+
+      if (prev.length === 0) return activeSourceIds;
+
+      const stillValidSelectedIds = prev.filter((id) => activeSourceIds.includes(id));
+      return stillValidSelectedIds.length > 0 ? stillValidSelectedIds : activeSourceIds;
+    });
+
     setLoading(false);
-  }
+  }, [startDate, endDate]);
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [loadData]);
 
   function toggleSource(sourceId: string) {
     setSelectedSourceIds((prev) =>
@@ -150,25 +185,18 @@ export default function ReportsPage() {
           deal.source_id !== null &&
           selectedSourceIds.includes(deal.source_id);
 
-        const dateMatch = deal.deal_date >= startDate && deal.deal_date <= endDate;
         const activeMatch = (deal.status ?? "active") !== "cancelled";
 
-        return sourceMatch && dateMatch && activeMatch;
+        return sourceMatch && activeMatch;
       })
       .sort((a, b) => a.deal_date.localeCompare(b.deal_date));
-  }, [deals, selectedSourceIds, startDate, endDate]);
+  }, [deals, selectedSourceIds]);
 
   const filteredMetrics = useMemo(() => {
     return dailyMetrics.filter((metric) => {
-      const sourceMatch =
-        selectedSourceIds.length > 0 && selectedSourceIds.includes(metric.source_id);
-
-      const dateMatch =
-        metric.metric_date >= startDate && metric.metric_date <= endDate;
-
-      return sourceMatch && dateMatch;
+      return selectedSourceIds.length > 0 && selectedSourceIds.includes(metric.source_id);
     });
-  }, [dailyMetrics, selectedSourceIds, startDate, endDate]);
+  }, [dailyMetrics, selectedSourceIds]);
 
   const reportStats = useMemo(() => {
     const dealCount = filteredDeals.length;
