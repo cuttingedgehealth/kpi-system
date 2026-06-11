@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { OFFICE_ID } from "@/lib/config";
 
@@ -79,7 +79,7 @@ export default function ReportsPage() {
   const [loading, setLoading] = useState(true);
   const [errorText, setErrorText] = useState("");
 
-  const loadData = useCallback(async () => {
+  async function loadData() {
     setLoading(true);
     setErrorText("");
 
@@ -144,11 +144,12 @@ export default function ReportsPage() {
     });
 
     setLoading(false);
-  }, [startDate, endDate]);
+  }
 
   useEffect(() => {
     loadData();
-  }, [loadData]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function toggleSource(sourceId: string) {
     setSelectedSourceIds((prev) =>
